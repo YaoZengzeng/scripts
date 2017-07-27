@@ -1,17 +1,5 @@
 #!/bin/bash
 
-# Install hyper
-curl -sSL https://hypercontainer.io/install | bash
-
-echo -e "Kernel=/var/lib/hyper/kernel\n\
-Initrd=/var/lib/hyper/hyper-initrd.img\n\
-Hypervisor=qemu\n\
-StorageDriver=overlay\n\
-gRPCHost=127.0.0.1:22318" > /etc/hyper/config
-
-systemctl enable hyperd
-systemctl restart hyperd
-
 # Install docker
 yum install -y docker
 
@@ -31,7 +19,7 @@ gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg
 EOF
 
 setenforce 0
-yum install -y kubernetes-cni
 
 # Install kubelet kubeadm kubectl
-yum install -y kubelet kubeadm kubectl
+yum install -y kubelet-1.7.1 kubeadm-1.7.1 kubectl-1.7.1
+
