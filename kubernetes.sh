@@ -21,5 +21,5 @@ EOF
 setenforce 0
 
 # Install kubelet kubeadm kubectl
-yum install -y kubelet-1.7.1 kubeadm-1.7.1 kubectl-1.7.1
+yum install -y kubelet-1.7.0 kubeadm-1.7.0 kubectl-1.7.0
 
