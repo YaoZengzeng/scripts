@@ -1,12 +1,15 @@
 #!/bin/bash
 
-NODE_NAME=
+NODE_NAME=master
 
 CENTRAL_IP=
 LOCAL_IP=
 
-CLUSTER_IP_SUBNET=
-MASTER_SWITCH_SUBNET=
+CLUSTER_IP_SUBNET=192.168.0.0/16
+MASTER_SWITCH_SUBNET=192.168.1.0/24
+
+ovn-nbctl set-connection ptcp:6641
+ovn-sbctl set-connection ptcp:6642
 
 ovs-vsctl set Open_vSwitch . external_ids:ovn-remote="tcp:$CENTRAL_IP:6642" \
   external_ids:ovn-nb="tcp:$CENTRAL_IP:6641" \
