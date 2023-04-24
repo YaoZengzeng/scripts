@@ -1,3 +1,5 @@
+#!/bin/bash
+
 ISTIOSYSTEM="istio-system"
 
 alias ki="kubectl -n ${ISTIOSYSTEM}"
