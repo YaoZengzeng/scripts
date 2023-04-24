@@ -1,0 +1,45 @@
+##################################################################################################
+# Nginx service
+##################################################################################################
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nginx
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+    service: nginx
+spec:
+  ports:
+  - port: 80
+    name: http
+  selector:
+    app: nginx
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+        # sidecar.istio.io/inject: "false"
+    spec:
+      terminationGracePeriodSeconds: 0
+      serviceAccountName: nginx
+      containers:
+      - name: nginx
+        image: registry-cbu.huawei.com/yaozengzeng/nginx:curl
+        imagePullPolicy: IfNotPresent
+---
+

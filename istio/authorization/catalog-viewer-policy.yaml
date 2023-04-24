@@ -1,0 +1,15 @@
+apiVersion: "security.istio.io/v1beta1"
+kind: "AuthorizationPolicy"
+metadata:
+  name: "catalog-viewer"
+spec:
+  selector:
+    matchLabels:
+      app: catalog
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/default/sa/webapp"]
+    to:
+    - operation:
+        methods: ["GET"]

@@ -1,0 +1,29 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: pod-metadata-inbound
+  namespace: istio-system
+spec:
+        #workloadSelector:
+        #labels:
+        #envoy: envoy-sample
+  configPatches:
+    - applyTo: LISTENER
+      match:
+        #context: SIDECAR_OUTBOUND
+        listener:
+          name: virtualInbound
+          #name: 0.0.0.0_80
+          #name: 0.0.0.0_9080
+      patch:
+        operation: MERGE
+        value:
+          "listener_filters": [ 
+          {
+            "name": "envoy.filters.listener.pod_metadata",
+            #"typed_config": {
+            # "@type": "type.googleapis.com/envoy.extensions.filters.listener.pod_metadata.v3.PodMetadata"
+            #}
+          }
+          ]
+
