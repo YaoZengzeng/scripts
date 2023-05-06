@@ -1,0 +1,7 @@
+{
+  "api_key": "xxxx",
+  "endpoint": "https://yzz-test.openai.azure.com/",
+  "engine": "yzz-gpt35",
+  "api_type": "AZURE",
+  "api_version": "2023-03-15-preview"
+}
