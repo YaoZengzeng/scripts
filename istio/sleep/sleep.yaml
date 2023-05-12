@@ -33,7 +33,8 @@ spec:
       serviceAccountName: sleep
       containers:
       - name: sleep
-        image: registry-cbu.huawei.com/yaozengzeng/governmentpaas/curl-ssl
+        # image: registry-cbu.huawei.com/yaozengzeng/governmentpaas/curl-ssl
+        image: curlimages/curl
         command: ["/bin/sleep", "3650d"]
         imagePullPolicy: IfNotPresent
         volumeMounts:

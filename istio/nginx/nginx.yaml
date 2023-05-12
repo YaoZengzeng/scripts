@@ -39,7 +39,8 @@ spec:
       serviceAccountName: nginx
       containers:
       - name: nginx
-        image: registry-cbu.huawei.com/yaozengzeng/nginx:curl
+        # image: registry-cbu.huawei.com/yaozengzeng/nginx:curl
+        image: nginx
         imagePullPolicy: IfNotPresent
 ---
 
