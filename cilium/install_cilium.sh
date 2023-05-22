@@ -13,4 +13,8 @@ elif [ "$MODE" == "with-envoy" ]; then
 	  --version $VERSION
 fi
 
+# avoid "too many open files" error
+sysctl -w fs.inotify.max_user_watches=100000
+sysctl -w fs.inotify.max_user_instances=100000
+
 cilium hubble enable
