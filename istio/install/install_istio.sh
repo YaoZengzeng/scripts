@@ -1,6 +1,6 @@
 #!/bin/bash
 
-enable_local_dns=true
+enable_local_dns=false
 
 istioctl x precheck
 

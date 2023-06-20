@@ -1,10 +1,10 @@
 #!/bin/bash
 
-MODE=with-envoy
+MODE=raw
 VERSION=v1.13.0
 
 if [ "$MODE" == "raw" ]; then
-	cilium install --$VERSION
+	cilium install --version $VERSION
 elif [ "$MODE" == "with-envoy" ]; then
 	cilium install \
 	  --kube-proxy-replacement=strict \
