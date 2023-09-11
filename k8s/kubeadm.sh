@@ -1,7 +1,7 @@
 #/bin/bash
 
 # --image-repository以阿里云作为源时，指定为"registry.aliyuncs.com/google_containers"
-kubeadm init --pod-network-cidr=192.168.0.0/16 --kubernetes-version=1.21.1 #--image-repository=registry-cbu.huawei.com/yaozengzeng
+kubeadm init --pod-network-cidr=10.2.0.0/16 --cri-socket="unix:///var/run/cri-dockerd.sock"  #--kubernetes-version=1.21.1 #--image-repository=registry-cbu.huawei.com/yaozengzeng
 
 kubectl taint nodes --all node-role.kubernetes.io/master-
 

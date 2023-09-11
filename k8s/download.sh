@@ -13,5 +13,5 @@ echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt
 
 sudo apt-get update
 
-apt install -y kubelet=1.21.1-00 kubeadm=1.21.1-00 kubectl=1.21.1-00
+apt install -y kubelet=1.28.1-00 kubeadm=1.28.1-00 kubectl=1.28.1-00
 
