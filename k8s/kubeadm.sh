@@ -3,7 +3,15 @@
 # --image-repository以阿里云作为源时，指定为"registry.aliyuncs.com/google_containers"
 kubeadm init --pod-network-cidr=10.2.0.0/16 --cri-socket="unix:///var/run/cri-dockerd.sock"  #--kubernetes-version=1.21.1 #--image-repository=registry-cbu.huawei.com/yaozengzeng
 
+mkdir -p $HOME/.kube
+
+cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+
+chown $(id -u):$(id -g) $HOME/.kube/config
+
 kubectl taint nodes --all node-role.kubernetes.io/master-
+
+kubectl taint nodes --all  node-role.kubernetes.io/control-plane-
 
 # 查看日志
 # journalctl -xeu kubelet
