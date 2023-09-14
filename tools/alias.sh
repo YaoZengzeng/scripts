@@ -9,6 +9,15 @@ alias kilp="kubectl -n ${ISTIOSYSTEM} logs"
 alias kidsp="kubectl -n ${ISTIOSYSTEM} describe pods"
 alias kigs="kubectl get services -n ${ISTIOSYSTEM}"
 
+SYSTEM="kube-system"
+
+alias k="kubectl -n ${SYSTEM}"
+alias kkgp="kubectl get pods -n ${SYSTEM}"
+alias kkdp="kubectl -n ${SYSTEM} delete pods"
+alias kklp="kubectl -n ${SYSTEM} logs"
+alias kkdsp="kubectl -n ${SYSTEM} describe pods"
+alias kkgs="kubectl get services -n ${SYSTEM}"
+
 alias k="kubectl"
 alias kgp="kubectl get pods"
 alias klp="kubectl logs"
