@@ -51,7 +51,7 @@ spec:
       labels:
         app: sleep
       annotations:
-        sidecar.istio.io/proxyMemoryLimit: 4096Mi
+        sidecar.istio.io/proxyMemoryLimit: 10000Mi
         sidecar.istio.io/proxyCPULimit: 2000m
     spec:
       terminationGracePeriodSeconds: 0
