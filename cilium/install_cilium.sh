@@ -1,6 +1,6 @@
 #!/bin/bash
 
-MODE=raw
+MODE=with-envoy
 VERSION=v1.13.0
 
 if [ "$MODE" == "raw" ]; then
