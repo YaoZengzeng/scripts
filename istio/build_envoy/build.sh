@@ -1,0 +1,7 @@
+#!/bin/bash
+  
+docker cp envoy_build_18:/home/.cache/bazel/_bazel_root/0b2f5c7fac4b02c7efd0f9f5b724b1fe/execroot/io_istio_proxy/bazel-out/k8-opt/bin/envoy .
+
+docker build . --no-cache -t registry-cbu.huawei.com/yaozengzeng/proxyv2:1.18.3-dev
+
+docker push registry-cbu.huawei.com/yaozengzeng/proxyv2:1.18.3-dev
