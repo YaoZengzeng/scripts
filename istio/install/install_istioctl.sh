@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ISTIO_VERSION=1.15.7
+ISTIO_VERSION=1.18.5
 
 cd ~
 
