@@ -14,3 +14,7 @@ kubectl get namespace -L istio.io/dataplane-mode
 
 # viewing labels of ns
 kubectl get namespace -L istio-injection
+
+# delete istio.io/dataplane-mode label
+kubectl  label namespace default istio.io/dataplane-mode-
+
