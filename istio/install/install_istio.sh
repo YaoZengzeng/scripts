@@ -1,7 +1,7 @@
 #!/bin/bash
 
 enable_local_dns=false
-enable_cni=true
+enable_cni=false
 
 istioctl x precheck
 
