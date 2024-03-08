@@ -12,4 +12,7 @@
 
 // 使用istioctl动态调整
 istioctl proxy-config log productpage-v1-7668cb67cc-86q8l --level trace
+
+// 通过curl命令调整envoy日志级别
+kubectl exec nginx-istio-waypoint-bf7f745dd-rmgln -- curl -XPOST 127.0.0.1:15000/logging?level=trace
 ```

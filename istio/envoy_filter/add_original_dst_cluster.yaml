@@ -1,0 +1,14 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: add-original-dst-cluster
+spec:
+  configPatches:
+  - applyTo: CLUSTER
+    patch:
+      operation: ADD
+      value:
+        name: "kmesh_connect_originate"
+        type: ORIGINAL_DST
+        connect_timeout: 2s
+        lb_policy: CLUSTER_PROVIDED
