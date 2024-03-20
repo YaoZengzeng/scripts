@@ -1,26 +1,49 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net"
 	"os"
 )
 
 func main() {
-	serverAddr := "127.0.0.1:12345"
+	addr := flag.String("addr", "127.0.0.1:15000", "The IP address")
+	serviceAddr := flag.String("service-addr", "10.96.41.22:80", "The service IP address")
 
-	// 建立 TCP 连接
-	conn, err := net.Dial("tcp", serverAddr)
+	flag.Parse()
+
+	conn, err := net.Dial("tcp", *addr)
 	if err != nil {
-		fmt.Println("无法连接到服务器:", err)
+		fmt.Println("connect failed:", err)
 		os.Exit(1)
 	}
 	defer conn.Close()
 
-	msg := []byte{0x1, 0xf}
+	tlvTypeService := 0x1
+	tlvTypeEnding := 0xfe
+
+	msg := []byte{byte(tlvTypeService), byte(len(*serviceAddr))}
+	msg = append(msg, []byte(msg)...)
 	_, err = conn.Write(msg)
 	if err != nil {
-		fmt.Println("send message failed:", err)
+		fmt.Println("send tlv type service message failed:", err)
 		os.Exit(1)
 	}
+
+	msg = []byte{byte(tlvTypeEnding), 0x0}
+	_, err = conn.Write(msg)
+	if err != nil {
+		fmt.Println("send tlv type ending message failed:", err)
+		os.Exit(1)
+	}
+
+	buffer := make([]byte, 1024)
+	_, err = conn.Read(buffer)
+	if err != nil {
+		fmt.Println("read from connection failed:", err)
+		os.Exit(1)
+	}
+
+	conn.Close()
 }

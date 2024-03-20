@@ -1,0 +1,20 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: listener-filter-example
+  namespace: default
+spec:
+  configPatches:
+  - applyTo: LISTENER_FILTER
+    match:
+      context: SIDECAR_INBOUND # will match inbound listeners in all sidecars
+      listener:
+        portNumber: 15006
+        listenerFilter: "envoy.filters.listener.tls_inspector"
+    patch:
+      operation: INSERT_BEFORE
+      value:
+        # This is the full filter config including the name and typed_config section.
+        name: "envoy.filters.listener.proxy_protocol"
+        typed_config:
+          "@type": "type.googleapis.com/envoy.extensions.filters.listener.proxy_protocol.v3.ProxyProtocol"
