@@ -24,7 +24,7 @@ func main() {
 	tlvTypeEnding := 0xfe
 
 	msg := []byte{byte(tlvTypeService), byte(len(*serviceAddr))}
-	msg = append(msg, []byte(msg)...)
+	msg = append(msg, []byte(*serviceAddr)...)
 	_, err = conn.Write(msg)
 	if err != nil {
 		fmt.Println("send tlv type service message failed:", err)
