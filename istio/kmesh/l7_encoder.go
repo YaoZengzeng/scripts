@@ -32,6 +32,9 @@ func main() {
 	}
 
 	msg = []byte{byte(tlvTypeEnding), 0x0}
+	req := "GET / HTTP/1.1\r\n" + "Host: nginx.default\r\n" + "Connection: close\r\n" + "\r\n"
+
+	msg = append(msg, []byte(req)...)
 	_, err = conn.Write(msg)
 	if err != nil {
 		fmt.Println("send tlv type ending message failed:", err)
@@ -39,11 +42,13 @@ func main() {
 	}
 
 	buffer := make([]byte, 1024)
-	_, err = conn.Read(buffer)
+	n, err := conn.Read(buffer)
 	if err != nil {
 		fmt.Println("read from connection failed:", err)
 		os.Exit(1)
 	}
+
+	fmt.Printf("%s\n", buffer[:n])
 
 	conn.Close()
 }
