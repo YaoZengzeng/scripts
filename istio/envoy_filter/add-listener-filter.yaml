@@ -8,7 +8,7 @@ spec:
     patch:
       operation: ADD
       value:
-        name: kmesh-listner
+        name: kmesh-listener
         address:
           socket_address:
             protocol: TCP

@@ -1,3 +1,4 @@
 k8s/cri-dockerd/
 envoy/build/envoy
 istio/kmesh/l7_encoder
+envoy/envoy.dump
