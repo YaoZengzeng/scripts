@@ -5,8 +5,6 @@ metadata:
 spec:
   configPatches:
   - applyTo: CLUSTER
-    match:
-      context: GATEWAY
     patch:
       operation: ADD
       value:
