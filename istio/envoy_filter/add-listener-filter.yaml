@@ -22,6 +22,7 @@ spec:
               stat_prefix: main_interval
               cluster: main_internal
         listener_filters:
-        - name: "envoy.filters.listener.proxy_protocol"
+        - name: "envoy.listener.kmesh_tlv"
           typed_config:
-            "@type": "type.googleapis.com/envoy.extensions.filters.listener.proxy_protocol.v3.ProxyProtocol"
+            "@type": "type.googleapis.com/udpa.type.v1.TypedStruct"
+            "type_url": "type.googleapis.com/envoy.listener.kmesh_tlv.config.KmeshTlv"
