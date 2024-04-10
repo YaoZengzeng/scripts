@@ -5,6 +5,8 @@ metadata:
 spec:
   configPatches:
   - applyTo: CLUSTER
+    match:
+      context: SIDECAR_INBOUND
     patch:
       operation: ADD
       value:
