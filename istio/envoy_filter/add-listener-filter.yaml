@@ -2,7 +2,11 @@ apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
   name: add-listener-filter
+  namespace: istio-system
 spec:
+  workloadSelector:
+    labels:
+      gateway.istio.io/managed: istio.io-mesh-controller
   configPatches:
   - applyTo: LISTENER
     patch:
