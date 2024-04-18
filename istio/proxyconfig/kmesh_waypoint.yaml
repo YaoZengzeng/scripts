@@ -1,0 +1,8 @@
+apiVersion: networking.istio.io/v1beta1
+kind: ProxyConfig
+metadata:
+  name: kmesh-waypoint-proxyconfig
+  namespace: istio-system
+spec:
+  image:
+    imageType: debug

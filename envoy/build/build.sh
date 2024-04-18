@@ -1,5 +1,9 @@
 #!/bin/bash
 
-docker cp envoy_build_20:/home/.cache/bazel/_bazel_root/0b2f5c7fac4b02c7efd0f9f5b724b1fe/execroot/io_istio_proxy/bazel-out/k8-opt/bin/envoy .
+docker create --name temp -v cache:/home/.cache busybox
+
+docker cp temp:/home/.cache/bazel/_bazel_root/1e0bb3bee2d09d2e4ad3523530d3b40c/execroot/io_istio_proxy/bazel-out/k8-opt/bin/envoy .
+
+docker rm temp
 
 docker build . --no-cache -t istio/proxyv2:1.20.0
