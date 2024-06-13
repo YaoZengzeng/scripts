@@ -20,6 +20,7 @@ alias kkgs="kubectl get services -n ${SYSTEM}"
 
 alias k="kubectl"
 alias kgp="kubectl get pods"
+alias kgpa="kubectl get pods --all-namespaces"
 alias klp="kubectl logs"
 alias kdp="kubectl delete pods"
 alias kep="kubectl exec -it"
