@@ -1,4 +1,4 @@
-FROM istio/proxyv2:1.20.0
+FROM istio/proxyv2:1.22.1
 
 COPY envoy /usr/local/bin
 

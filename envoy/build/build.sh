@@ -6,4 +6,4 @@ docker cp temp:/home/.cache/bazel/_bazel_root/1e0bb3bee2d09d2e4ad3523530d3b40c/e
 
 docker rm temp
 
-docker build . --no-cache -t istio/proxyv2:1.20.0
+docker build . --no-cache -t ghcr.io/kmesh-net/waypoint-x86:v0.3.0
