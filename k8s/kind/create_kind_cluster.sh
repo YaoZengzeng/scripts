@@ -3,10 +3,12 @@
 kind create cluster --image kindest/node:v1.30.0@sha256:047357ac0cfea04663786a612ba1eaba9702bef25227a794b52890dd8bcd692e --config=- <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-name: ambient
+name: ambient-ipv6
 nodes:
 - role: control-plane
 # - role: worker
+networking:
+  ipFamily: dual
 EOF
 
 # 指定特定镜像
@@ -18,6 +20,8 @@ EOF
 # 在/etc/containerd/config.toml末尾添加以下内容：
 # [plugins."io.containerd.grpc.v1.cri".registry.configs."registry-cbu.huawei.com".tls]
 #   insecure_skip_verify = true
+
+# 通过ipFamily指定使用的协议栈，取值为：ipv4, ipv6和dual
 
 
 kubectl cluster-info --context kind-ambient
