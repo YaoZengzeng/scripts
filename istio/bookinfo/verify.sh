@@ -2,4 +2,5 @@
 
 # install sleep first
 
-kubectl exec deploy/sleep -- curl -s http://istio-ingressgateway.istio-system/productpage | head -n1
+kubectl exec deploy/sleep -- curl -s http://productpage:9080/productpage  | grep reviews-v.-
+
