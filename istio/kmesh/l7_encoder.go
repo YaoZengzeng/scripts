@@ -22,6 +22,8 @@ func main() {
 	}
 	defer conn.Close()
 
+	fmt.Printf("connect to %s successfully\n", *addr)
+
 	tlvTypeService := 0x1
 	tlvTypeEnding := 0xfe
 
@@ -45,7 +47,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	ipBytes := ipParsed.To4()
+	var ipBytes net.IP
+	if ipParsed.To4() != nil {
+		ipBytes = ipParsed.To4()
+	} else {
+		ipBytes = ipParsed
+	}
 
 	portBytes := make([]byte, 2)
 	binary.BigEndian.PutUint16(portBytes, port)

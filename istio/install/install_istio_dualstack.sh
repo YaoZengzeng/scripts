@@ -8,6 +8,7 @@ spec:
     cni:
       enabled: true
   meshConfig:
+    accessLogFile: /dev/stdout
     defaultConfig:
       proxyMetadata:
         ISTIO_DUAL_STACK: "true"
