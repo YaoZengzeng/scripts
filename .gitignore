@@ -1,6 +1,7 @@
 k8s/cri-dockerd/
 envoy/build/envoy
 envoy/envoy.dump
+envoy/envoy_sidecar.dump
 istio/kmesh/l7_encoder
 istio/build/pilot-discovery
 
