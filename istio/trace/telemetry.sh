@@ -10,6 +10,7 @@ spec:
   tracing:
     - providers:
         - name: "localtrace"
+      randomSamplingPercentage: 100.00
 EOF
 
 

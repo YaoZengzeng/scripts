@@ -3,14 +3,14 @@
 kind create cluster --image kindest/node:v1.30.0@sha256:047357ac0cfea04663786a612ba1eaba9702bef25227a794b52890dd8bcd692e --config=- <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-name: ambient-ipv6
+name: kmesh
 nodes:
 - role: control-plane
 # - role: worker
 #networking:
 #  ipFamily: dual
-networking:
-  ipFamily: ipv6
+#networking:
+#  ipFamily: ipv6
 EOF
 
 # 指定特定镜像
