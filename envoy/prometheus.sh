@@ -1,3 +1,5 @@
 #!/bin/bash
 
-kubectl exec "$1"  -- curl 127.0.0.1:15000/stats/prometheus
+NAMESPACE="${2:-default}"
+
+kubectl exec "$1"  -n "$NAMESPACE" -- curl 127.0.0.1:15000/stats/prometheus
