@@ -6,3 +6,4 @@ sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clan
 
 curl https://sh.rustup.rs -sSf | sh
 
+rustup toolchain install nightly

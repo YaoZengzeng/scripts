@@ -32,7 +32,7 @@ spec:
 EOF
 
 else
-  istioctl install --set profile=demo -y
+  istioctl install --set profile=demo --set meshConfig.accessLogFile="/dev/stdout"  -y
 fi
 
 kubectl label --overwrite namespace default istio-injection=enabled
