@@ -47,12 +47,11 @@ spec:
       labels:
         app: tcp-echo
         version: v1
-        sidecar.istio.io/inject: "true"
+        sidecar.istio.io/inject: "false"
     spec:
       containers:
       - name: tcp-echo
-        # image: docker.io/istio/tcp-echo-server:1.2
-        image: registry-cbu.huawei.com/yaozengzeng/istio/tcp-echo-server:1.2
+        image: docker.io/istio/tcp-echo-server:1.2
         imagePullPolicy: IfNotPresent
         args: [ "9000,9001,9002", "one" ]
         ports:
@@ -77,12 +76,11 @@ spec:
       labels:
         app: tcp-echo
         version: v2
-        sidecar.istio.io/inject: "true"
+        sidecar.istio.io/inject: "false"
     spec:
       containers:
       - name: tcp-echo
         image: docker.io/istio/tcp-echo-server:1.2
-        # image: registry-cbu.huawei.com/yaozengzeng/istio/tcp-echo-server:1.2
         imagePullPolicy: IfNotPresent
         args: [ "9000,9001,9002", "two" ]
         ports:
