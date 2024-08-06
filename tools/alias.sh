@@ -18,6 +18,15 @@ alias kklp="kubectl -n ${KMESHSYSTEM} logs"
 alias kkdsp="kubectl -n ${KMESHSYSTEM} describe pods"
 alias kkgs="kubectl get services -n ${KMESHSYSTEM}"
 
+TESTNS="test"
+
+alias kt="kubectl -n ${TESTNS}"
+alias ktgp="kubectl get pods -n ${TESTNS}"
+alias ktdp="kubectl -n ${TESTNS} delete pods"
+alias ktlp="kubectl -n ${TESTNS} logs"
+alias ktdsp="kubectl -n ${TESTNS} describe pods"
+alias ktgs="kubectl get services -n ${TESTNS}"
+
 alias k="kubectl"
 alias kgp="kubectl get pods"
 alias kgpa="kubectl get pods --all-namespaces"
