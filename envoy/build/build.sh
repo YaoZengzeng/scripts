@@ -11,7 +11,7 @@ fi
 docker rm temp
 
 if [ "$ARCH" = "arm" ]; then
-	docker build . --no-cache -t ghcr.io/kmesh-net/waypoint-x86:latest
+	docker build . --no-cache -t ghcr.io/kmesh-net/waypoint-arm:latest
 elif [ "$ARCH" = "x86" ]; then
 	docker build . --no-cache -t ghcr.io/kmesh-net/waypoint-x86:latest
 else
