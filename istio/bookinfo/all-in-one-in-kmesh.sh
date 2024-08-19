@@ -1,11 +1,13 @@
 #!/bin/bash
 
-kubectl label namespace default istio.io/dataplane-mode=Kmesh
+NAMESPACE="${1:-default}"
 
-bash all-in-one.sh
+kubectl label namespace "$NAMESPACE" istio.io/dataplane-mode=Kmesh
 
-istioctl x waypoint apply -n default --name reviews-svc-waypoint
+bash all-in-one.sh "$NAMESPACE"
 
-kubectl label service reviews istio.io/use-waypoint=reviews-svc-waypoint
+istioctl x waypoint apply -n "$NAMESPACE" --name reviews-svc-waypoint
 
-kubectl annotate gateway reviews-svc-waypoint sidecar.istio.io/proxyImage=ghcr.io/kmesh-net/waypoint:latest
+kubectl label service reviews -n "$NAMESPACE" istio.io/use-waypoint=reviews-svc-waypoint
+
+kubectl annotate gateway reviews-svc-waypoint -n "$NAMESPACE" sidecar.istio.io/proxyImage=ghcr.io/kmesh-net/waypoint:latest

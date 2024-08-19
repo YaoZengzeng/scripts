@@ -4,7 +4,7 @@ NAMESPACE="${1:-default}"
 
 kubectl label namespace "$NAMESPACE" istio.io/dataplane-mode=ambient
 
-bash all-in-one.sh
+bash all-in-one.sh "$NAMESPACE"
 
 istioctl x waypoint apply -n "$NAMESPACE" --name reviews-svc-waypoint
 
