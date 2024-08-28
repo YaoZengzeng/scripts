@@ -2,6 +2,6 @@
 
 NAMESPACE="${1:-default}"
 
-istioctl x waypoint delete waypoint
+istioctl x waypoint delete waypoint || istioctl waypoint delete waypoint
 
 kubectl label ns "$NAMESPACE" istio.io/use-waypoint-

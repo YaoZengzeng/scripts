@@ -4,7 +4,7 @@ NAMESPACE="${3:-default}"
 
 NAME="$1"-"$2"-waypoint
 
-istioctl x waypoint apply -n $NAMESPACE --name $NAME --for workload
+istioctl x waypoint apply -n $NAMESPACE --name $NAME --for workload || istioctl waypoint apply -n $NAMESPACE --name $NAME --for workload
 
 kubectl annotate gateway $NAME sidecar.istio.io/proxyImage=ghcr.io/kmesh-net/waypoint:latest -n "$NAMESPACE"
 
