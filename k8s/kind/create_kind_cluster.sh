@@ -1,9 +1,11 @@
 #!/bin/bash
 
+NAME="${1:-kmesh}"
+
 kind create cluster --image kindest/node:v1.30.0@sha256:047357ac0cfea04663786a612ba1eaba9702bef25227a794b52890dd8bcd692e --config=- <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-name: kmesh
+name: $NAME
 nodes:
 - role: control-plane
 # - role: worker
@@ -26,5 +28,5 @@ EOF
 # 通过ipFamily指定使用的协议栈，取值为：ipv4, ipv6和dual
 
 
-kubectl cluster-info --context kind-ambient
+kubectl cluster-info --context $NAME
 
