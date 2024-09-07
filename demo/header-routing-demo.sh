@@ -55,7 +55,7 @@ execute_command "kubectl annotate gateway reviews-svc-waypoint sidecar.istio.io/
 
 execute_command "watch kubectl get pods"
 
-prompt "Apply header routing based on header `end-user`" "For end user jason, it will access service reviews v2 and the rest of users will access the reviews v3"
+prompt "Apply header routing based on header end-user" "For end user jason, it will access service reviews v2 and the rest of users will access the reviews v1"
 
 kubectl apply -f -<<EOF
 apiVersion: networking.istio.io/v1alpha3

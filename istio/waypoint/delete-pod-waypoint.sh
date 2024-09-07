@@ -2,7 +2,7 @@
 
 NAMESPACE="${3:-default}"
 
-NAME="$1"-"$2"-waypoint
+NAME="$1"-"$2"-pod-waypoint
 
 istioctl x waypoint delete "$NAME" -n "$NAMESPACE" || istioctl waypoint delete "$NAME" -n "$NAMESPACE"
 
