@@ -27,7 +27,7 @@ function execute_command {
 
 clear
 
-prompt "Demo of Kmesh L7 Weighted LB\n" "Kmesh, Istio and Bookinfo have been installed"
+prompt "Demo of Kmesh L7 Header Routing\n" "Kmesh, Istio and Bookinfo have been installed"
 
 execute_command "kubectl get pods --all-namespaces"
 
@@ -55,7 +55,7 @@ execute_command "kubectl annotate gateway reviews-svc-waypoint sidecar.istio.io/
 
 execute_command "watch kubectl get pods"
 
-prompt "Apply weight-based routing" "Configure traffic routing to send 90% of requests to reviews v1 and 10% to reviews v2"
+prompt "Apply header routing based on header `end-user`" "For end user jason, it will access service reviews v2 and the rest of users will access the reviews v3"
 
 kubectl apply -f -<<EOF
 apiVersion: networking.istio.io/v1alpha3
@@ -66,15 +66,18 @@ spec:
   hosts:
     - reviews
   http:
+  - match:
+    - headers:
+        end-user:
+          exact: jason
+    route:
+    - destination:
+        host: reviews
+        subset: v2
   - route:
     - destination:
         host: reviews
         subset: v1
-      weight: 90
-    - destination:
-        host: reviews
-        subset: v2
-      weight: 10
 ---
 apiVersion: networking.istio.io/v1alpha3
 kind: DestinationRule
@@ -98,10 +101,6 @@ spec:
 EOF
 
 execute_command "kubectl get vs reviews -oyaml"
-
-prompt "Confirm that roughly 90% of the traffic go to reviews v1"
-
-execute_command 'kubectl exec deploy/sleep -- sh -c "for i in \$(seq 1 100); do curl -s http://productpage:9080/productpage | grep reviews-v.-; done"'
 
 prompt "Cleanup"
 
