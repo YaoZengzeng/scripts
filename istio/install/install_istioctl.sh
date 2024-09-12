@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ISTIO_VERSION=1.23.0
+ISTIO_VERSION=${1:-"1.23.0"}
 
 cd ~
 
