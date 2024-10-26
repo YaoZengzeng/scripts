@@ -2,4 +2,6 @@
 
 NAMESPACE="${1:-default}"
 
-kmeshctl waypoint apply -n "$NAMESPACE" --enroll-namespace
+IMAGE="ghcr.io/yaozengzeng/waypoint:latest"
+
+kmeshctl waypoint apply -n "$NAMESPACE" --enroll-namespace --image $IMAGE
