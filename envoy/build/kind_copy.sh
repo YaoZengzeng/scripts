@@ -1,4 +1,6 @@
 #!/bin/bash
 
-kind load docker-image ghcr.io/kmesh-net/waypoint:latest --name kmesh-testing
+CLUSTER=${1:-"kmesh-testing"}
+REPO=${2:-"yaozengzeng"}
 
+kind load docker-image ghcr.io/$REPO/waypoint:latest --name $CLUSTER

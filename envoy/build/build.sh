@@ -1,5 +1,7 @@
 #!/bin/bash
 
+REPO=${1:-"yaozengzeng"}
+
 docker create --name temp -v cache:/home/.cache busybox
 
 if [ "$ARCH" = "arm" ]; then
@@ -11,9 +13,9 @@ fi
 docker rm temp
 
 if [ "$ARCH" = "arm" ]; then
-	docker build . --no-cache -t ghcr.io/kmesh-net/waypoint-arm:latest
+	docker build . --no-cache -t ghcr.io/$REPO/waypoint-arm:latest
 elif [ "$ARCH" = "x86" ]; then
-	docker build . --no-cache -t ghcr.io/kmesh-net/waypoint-x86:latest
+	docker build . --no-cache -t ghcr.io/$REPO/waypoint-x86:latest
 else
-	docker build . --no-cache -t ghcr.io/kmesh-net/waypoint:latest
+	docker build . --no-cache -t ghcr.io/$REPO/waypoint:latest
 fi
