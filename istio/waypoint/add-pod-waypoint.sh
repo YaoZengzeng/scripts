@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# The first parameter is service name, like "reviews".
+# The second parameter is version, lik "v2".
+
 NAMESPACE="${3:-default}"
 
 NAME="$1"-"$2"-pod-waypoint

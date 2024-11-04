@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# The first parameter is the service name
+
 NAMESPACE="${2:-default}"
 
 NAME="$1"-svc-waypoint
