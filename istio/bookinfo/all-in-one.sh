@@ -9,3 +9,5 @@ kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.23/samp
 
 kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.21/samples/sleep/sleep.yaml -n "$NAMESPACE"
 
+# Create ingress gateway
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.23/samples/bookinfo/networking/bookinfo-gateway.yaml -n "$NAMESPACE"

@@ -1,0 +1,32 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: filter-ratelimit-svc-api
+  namespace: istio-system
+spec:
+  workloadSelector:
+    labels:
+      istio: ingressgateway
+  configPatches:
+    - applyTo: HTTP_ROUTE
+      match:
+        context: GATEWAY
+        routeConfiguration:
+          vhost:
+            name: "*:8080"
+            route:
+              name: "api"
+      patch:
+        operation: MERGE
+        value:
+          route:
+            rate_limits:
+            - actions:
+              - header_value_match:
+                  descriptor_key: "PATH"
+                  descriptor_value: "api"
+                  headers:
+                    - name: ":path"
+                      safe_regex_match:
+                        google_re2: {}
+                        regex: "/api/v1/products/[1-9]{1,2}"
