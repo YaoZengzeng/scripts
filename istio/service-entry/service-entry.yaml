@@ -1,14 +1,21 @@
 apiVersion: networking.istio.io/v1beta1
 kind: ServiceEntry
 metadata:
-  name: external-auto
+  name: test-se-v4
 spec:
   hosts:
-  - auto.internal
+  #- dummy-v4.example.com
+  - dummy.default.svc.cluster.local
+  addresses:
+  - 240.240.240.255
   ports:
-  - name: http
-    number: 80
+  - number: 80
+    name: http
     protocol: HTTP
   resolution: STATIC
+  location: MESH_INTERNAL
   endpoints:
-  - address: 10.244.2.7 # replace with appropriate pod IP
+  # Expose bookinfo through gateway first.
+  - address: 172.18.0.0
+    ports:
+      http: 80
