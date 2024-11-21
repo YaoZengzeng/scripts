@@ -2,7 +2,7 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: eg
+  name: aiengine
 spec:
   gatewayClassName: eg
   listeners:
@@ -15,10 +15,10 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: myapp
+  name: ollama
 spec:
   parentRefs:
-  - name: eg
+  - name: aiengine
   hostnames:
   - "www.ollama.com"
   rules:

@@ -2,8 +2,7 @@
 
 # ref: https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-completion
 
-#HOST="localhost:11434"
-HOST="172.18.0.3:80"
+HOST="${HOST:-localhost:11434}"
 
 # Pull model first
 curl --header "Host: www.ollama.com" http://$HOST/api/pull -d '{
