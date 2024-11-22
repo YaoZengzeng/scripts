@@ -1,4 +1,4 @@
-FROM istio/proxyv2:1.24.0-alpha.0-distroless
+FROM istio/proxyv2:1.24.0
 
 COPY envoy /usr/local/bin
 
