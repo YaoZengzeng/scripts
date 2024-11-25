@@ -15,5 +15,5 @@ curl --header "Host: www.ollama.com" http://$HOST/api/tags
 # Generate a completion
 curl --header "Host: www.ollama.com" http://$HOST/api/generate -d '{
   "model": "llama3.2",
-  "prompt": "Why is the sky blue?"
+  "prompt": "Who are you?"
 }'
