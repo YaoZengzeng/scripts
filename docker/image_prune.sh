@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker image prune --all
+docker image prune --all -f
