@@ -1,3 +1,3 @@
 #!/bin/bash
 
-apt install -y redis-tools
+kubectl apply -f ./redis.yaml
