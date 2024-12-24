@@ -27,6 +27,15 @@ alias ktlp="kubectl -n ${TESTNS} logs"
 alias ktdsp="kubectl -n ${TESTNS} describe pods"
 alias ktgs="kubectl get services -n ${TESTNS}"
 
+OLLAMANS="ollama"
+
+alias ko="kubectl -n ${OLLAMANS}"
+alias kogp="kubectl get pods -n ${OLLAMANS}"
+alias kodp="kubectl -n ${OLLAMANS} delete pods"
+alias kolp="kubectl -n ${OLLAMANS} logs"
+alias kodsp="kubectl -n ${OLLAMANS} describe pods"
+alias kogs="kubectl get services -n ${OLLAMANS}"
+
 alias k="kubectl"
 alias kgp="kubectl get pods"
 alias kgpa="kubectl get pods --all-namespaces"
