@@ -1,3 +1,5 @@
 #!/bin/bash
 
-helm delete ollama --namespace ollama
+NAMESPACE="${1:-ollama}"
+
+helm delete ollama --namespace $NAMESPACE
