@@ -1,0 +1,31 @@
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: Backend
+metadata:
+  name: backend-dummy
+  namespace: ollama
+spec:
+  endpoints:
+    - fqdn:
+        # Both these values are arbitrary and unused as the PatchPolicy redirects requests.
+        hostname: 'foo.bar.com'
+        port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: dummy-backend-route
+  namespace: ollama
+spec:
+  parentRefs:
+    - name: aiengine
+  hostnames:
+  - "www.backend-dummy.com"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /api
+    backendRefs:
+      - group: gateway.envoyproxy.io
+        kind: Backend
+        name: backend-dummy
