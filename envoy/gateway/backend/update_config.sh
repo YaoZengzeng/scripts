@@ -16,5 +16,6 @@ data:
       controllerName: gateway.envoyproxy.io/gatewayclass-controller
     extensionApis:
       enableBackend: true
+      enableEnvoyPatchPolicy: true
 EOF
 
