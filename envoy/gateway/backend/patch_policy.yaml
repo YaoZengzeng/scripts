@@ -36,7 +36,7 @@ spec:
               max_requests: 40000
 
     - type: "type.googleapis.com/envoy.config.route.v3.RouteConfiguration"
-      name: default/inference-gateway/llm-gw
+      name: ollama/aiengine/http
       operation:
         op: replace
         path: "/virtual_hosts/0/routes/0/route/cluster"

@@ -19,13 +19,9 @@ spec:
   parentRefs:
     - name: aiengine
   hostnames:
-  - "www.backend-dummy.com"
+  - "kmesh.ai.route"
   rules:
-  - matches:
-    - path:
-        type: PathPrefix
-        value: /api
-    backendRefs:
+  - backendRefs:
       - group: gateway.envoyproxy.io
         kind: Backend
         name: backend-dummy

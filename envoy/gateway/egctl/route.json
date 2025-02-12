@@ -1,0 +1,200 @@
+{
+  "envoy-gateway-system": {
+    "envoy-ollama-aiengine-ae43a107-f79b5b6df-784k9": {
+      "@type": "type.googleapis.com/envoy.admin.v3.RoutesConfigDump",
+      "dynamicRouteConfigs": [
+        {
+          "lastUpdated": "2025-02-08T02:45:24.730Z",
+          "routeConfig": {
+            "@type": "type.googleapis.com/envoy.config.route.v3.RouteConfiguration",
+            "ignorePortInHostMatching": true,
+            "name": "ollama/aiengine/http",
+            "virtualHosts": [
+              {
+                "domains": [
+                  "www.backend-dummy.com"
+                ],
+                "metadata": {
+                  "filterMetadata": {
+                    "envoy-gateway": {
+                      "resources": [
+                        {
+                          "kind": "Gateway",
+                          "name": "aiengine",
+                          "namespace": "ollama",
+                          "sectionName": "http"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "name": "ollama/aiengine/http/www_backend-dummy_com",
+                "routes": [
+                  {
+                    "match": {
+                      "pathSeparatedPrefix": "/api"
+                    },
+                    "metadata": {
+                      "filterMetadata": {
+                        "envoy-gateway": {
+                          "resources": [
+                            {
+                              "kind": "HTTPRoute",
+                              "name": "dummy-backend-route",
+                              "namespace": "ollama"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "name": "httproute/ollama/dummy-backend-route/rule/0/match/0/www_backend-dummy_com",
+                    "route": {
+                      "cluster": "original_destination_cluster",
+                      "upgradeConfigs": [
+                        {
+                          "upgradeType": "websocket"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "domains": [
+                  "www.ollama.com"
+                ],
+                "metadata": {
+                  "filterMetadata": {
+                    "envoy-gateway": {
+                      "resources": [
+                        {
+                          "kind": "Gateway",
+                          "name": "aiengine",
+                          "namespace": "ollama",
+                          "sectionName": "http"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "name": "ollama/aiengine/http/www_ollama_com",
+                "routes": [
+                  {
+                    "match": {
+                      "pathSeparatedPrefix": "/api"
+                    },
+                    "metadata": {
+                      "filterMetadata": {
+                        "envoy-gateway": {
+                          "resources": [
+                            {
+                              "kind": "HTTPRoute",
+                              "name": "ollama",
+                              "namespace": "ollama"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "name": "httproute/ollama/ollama/rule/0/match/0/www_ollama_com",
+                    "route": {
+                      "cluster": "httproute/ollama/ollama/rule/0",
+                      "upgradeConfigs": [
+                        {
+                          "upgradeType": "websocket"
+                        }
+                      ]
+                    },
+                    "typedPerFilterConfig": {
+                      "envoy.filters.http.ext_proc/envoyextensionpolicy/ollama/ext-proc-example/extproc/0": {
+                        "@type": "type.googleapis.com/envoy.config.route.v3.FilterConfig",
+                        "config": {}
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "domains": [
+                  "www.ollama-test.com"
+                ],
+                "metadata": {
+                  "filterMetadata": {
+                    "envoy-gateway": {
+                      "resources": [
+                        {
+                          "kind": "Gateway",
+                          "name": "aiengine",
+                          "namespace": "ollama",
+                          "sectionName": "http"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "name": "ollama/aiengine/http/www_ollama-test_com",
+                "routes": [
+                  {
+                    "match": {
+                      "pathSeparatedPrefix": "/api"
+                    },
+                    "metadata": {
+                      "filterMetadata": {
+                        "envoy-gateway": {
+                          "resources": [
+                            {
+                              "kind": "HTTPRoute",
+                              "name": "ollama-test",
+                              "namespace": "ollama"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "name": "httproute/ollama/ollama-test/rule/0/match/0/www_ollama-test_com",
+                    "route": {
+                      "cluster": "httproute/ollama/ollama-test/rule/0",
+                      "upgradeConfigs": [
+                        {
+                          "upgradeType": "websocket"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "versionInfo": "c3361bf7ccb81b430c8ee3bb686d0a0068e259c26d1daa74eef9addbbe069fa2"
+        }
+      ],
+      "staticRouteConfigs": [
+        {
+          "lastUpdated": "2025-02-08T01:21:44.932Z",
+          "routeConfig": {
+            "@type": "type.googleapis.com/envoy.config.route.v3.RouteConfiguration",
+            "name": "local_route",
+            "virtualHosts": [
+              {
+                "domains": [
+                  "*"
+                ],
+                "name": "prometheus_stats",
+                "routes": [
+                  {
+                    "match": {
+                      "prefix": "/stats/prometheus"
+                    },
+                    "route": {
+                      "cluster": "prometheus_stats"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
