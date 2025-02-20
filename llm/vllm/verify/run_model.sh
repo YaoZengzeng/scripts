@@ -10,7 +10,7 @@ LORA2="/root/.cache/huggingface/hub/models--Zhidian2025--deepseek-r1-distill-fin
 # Models:
 #   NousResearch/Llama-2-7b-hf
 
-docker run --env "HUGGING_FACE_HUB_TOKEN=$TOKEN" -v /root/.cache/huggingface:/root/.cache/huggingface -p 8000:8000 \
+docker run --env "HUGGING_FACE_HUB_TOKEN=$TOKEN" --rm -v /root/.cache/huggingface:/root/.cache/huggingface -p 8000:8000 \
     --ipc=host ghcr.io/yaozengzeng/vllm-cpu-env --model $MODEL \
     --enable-lora --lora-modules ds-lora1=$LORA1 ds-lora2=$LORA2 \
     --max_lora_rank 128
