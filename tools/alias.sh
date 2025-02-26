@@ -36,6 +36,17 @@ alias kolp="kubectl -n ${OLLAMANS} logs"
 alias kodsp="kubectl -n ${OLLAMANS} describe pods"
 alias kogs="kubectl get services -n ${OLLAMANS}"
 
+CONTEXT="--context kind-llm"
+
+alias xk="kubectl ${CONTEXT}"
+alias xkgp="kubectl get pods ${CONTEXT}"
+alias xkgpa="kubectl get pods --all-namespaces ${CONTEXT}"
+alias xklp="kubectl logs ${CONTEXT}"
+alias xkdp="kubectl delete pods ${CONTEXT}"
+alias xkep="kubectl exec -it ${CONTEXT}"
+alias xkdsp="kubectl describe pods ${CONTEXT}"
+alias xkgs="kubectl get services ${CONTEXT}"
+
 alias k="kubectl"
 alias kgp="kubectl get pods"
 alias kgpa="kubectl get pods --all-namespaces"
