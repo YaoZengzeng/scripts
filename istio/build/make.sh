@@ -2,4 +2,4 @@
 
 cd /root/istio
 
-make build
+BUILD_WITH_CONTAINER=1 make build
