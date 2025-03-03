@@ -4,8 +4,10 @@
 
 HOST="${HOST:-localhost:11434}"
 
+MODEL="${1:-"llama3.1"}"
+
 # Generate a completion
-curl -v --header "Host: www.ollama.com" http://$HOST/api/generate -d '{
-  "model": "llama3.2",
-  "prompt": "Who are you?"
-}'
+curl -v --header "Host: www.ollama.com" http://$HOST/api/generate -d "{
+  \"model\": \"$MODEL\",
+  \"prompt\": \"Who are you?\"
+}"
