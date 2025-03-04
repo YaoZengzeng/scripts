@@ -8,7 +8,8 @@ if [ $# -ge 1 ]; then
   loop_count=$1
 fi
 
-HOST="${HOST:-localhost:11434}"
+#HOST="${HOST:-localhost:11434}"
+HOST="${HOST:-172.18.0.0}"
 
 for (( i=1; i<=loop_count; i++ )); do
   # Generate a completion
