@@ -8,4 +8,4 @@ helm repo update
 
 kubectl create ns $NAMESPACE
 
-helm install ollama ollama-helm/ollama --namespace $NAMESPACE
+helm install ollama ollama-helm/ollama --namespace $NAMESPACE --set podLabels.app=$NAMESPACE
