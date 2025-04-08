@@ -31,8 +31,6 @@ git config --global http.sslVerify false
 
 7. 修改commit的作者
 git commit --amend --author="NewAuthor <NewEmail@address.com>"
-git commit --amend --author="Author <Email@address.com>"
-git commit --amend --author="Author <Email@address.com>"
 
 8.拉取repo的所有tag
 git fetch --tags
