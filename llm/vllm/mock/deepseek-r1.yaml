@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deepseek-r1-1-5b
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      adapter.model.aibrix.ai/enabled: "true"
+      model.aibrix.ai/name: "deepseek-r1-1-5b"
+      app: "deepseek-r1-1-5b"
+  template:
+    metadata:
+      labels:
+        adapter.model.aibrix.ai/enabled: "true"
+        model.aibrix.ai/name: "deepseek-r1-1-5b"
+        app: "deepseek-r1-1-5b"
+    spec:
+      serviceAccountName: mocked-app-sa
+      containers:
+        - name: llm-engine
+          image: ghcr.io/yaozengzeng/deepseek-r1:mock
+          imagePullPolicy: Always
+          command:
+            - python3
+            - app.py
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deepseek-r1-7b
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      adapter.model.aibrix.ai/enabled: "true"
+      model.aibrix.ai/name: "deepseek-r1-7b"
+      app: "deepseek-r1-7b"
+  template:
+    metadata:
+      labels:
+        adapter.model.aibrix.ai/enabled: "true"
+        model.aibrix.ai/name: "deepseek-r1-7b"
+        app: "deepseek-r1-7b"
+    spec:
+      serviceAccountName: mocked-app-sa
+      containers:
+        - name: llm-engine
+          image: ghcr.io/yaozengzeng/deepseek-r1:mock
+          imagePullPolicy: Always
+          env:
+            - name: MODEL_NAME
+              value: "deepseek-r1-7b"
+          command:
+            - python3
+            - app.py
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mocked-app-sa
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mocked-app-pod-reader-role
+  namespace: default
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mocked-app-pod-reader-role-binding
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: mocked-app-sa
+    namespace: default
+roleRef:
+  kind: Role
+  name: mocked-app-pod-reader-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: mocked-app-deployment-reader-role
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mocked-app-deployment-reader-role-binding
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: mocked-app-sa
+    namespace: default
+roleRef:
+  kind: Role
+  name: mocked-app-deployment-reader-role
+  apiGroup: rbac.authorization.k8s.io
