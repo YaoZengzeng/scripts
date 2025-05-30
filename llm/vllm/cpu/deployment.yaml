@@ -15,7 +15,7 @@ spec:
       containers:
         - name: lora
           image: "ghcr.io/yaozengzeng/vllm-cpu-env" # formal images can be found in https://gallery.ecr.aws/q9t5s3a7/vllm-cpu-release-repo
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           command: ["python3", "-m", "vllm.entrypoints.openai.api_server"]
           args:
           - "--model"
