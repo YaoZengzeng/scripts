@@ -69,3 +69,16 @@ spec:
             medium: Memory
         - name: adapters
           emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-deepseek-1-5b
+spec:
+  ports:
+    - port: 8000
+      targetPort: http
+  selector:
+    app: vllm-deepseek-1-5b
+  type: LoadBalancer
