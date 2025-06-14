@@ -1,6 +1,6 @@
 #!/bin/bash
 
-HOST="${HOST:-"172.18.0.3:8000"}"
+HOST="${HOST:-"127.0.0.1:80"}"
 
 MODEL="${1:-"deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"}"
 

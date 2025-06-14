@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: vllm-deepseek-1-5b
+  name: vllm-cpu-deepseek-r1-1-5b
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: vllm-deepseek-1-5b
+      app: deepseek-r1-1-5b
   template:
     metadata:
       labels:
-        app: vllm-deepseek-1-5b
+        app: deepseek-r1-1-5b
     spec:
       containers:
         - name: lora
@@ -74,11 +74,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: vllm-deepseek-1-5b
+  name: vllm-cpu-deepseek-r1-1-5b
 spec:
   ports:
     - port: 8000
       targetPort: http
   selector:
-    app: vllm-deepseek-1-5b
+    app: deepseek-r1-1-5b
   type: LoadBalancer
