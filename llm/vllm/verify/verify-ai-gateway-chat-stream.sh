@@ -8,7 +8,7 @@ curl -v http://$HOST/v1/chat/completions \
     -H "Content-Type: application/json" \
     -d "{
         \"model\": \"$MODEL\",
-	\"messages\": [{\"role\": \"user\", \"content\": \"Who are you?\"}],
+        \"messages\": [{\"role\": \"user\", \"content\": \"Who are you?\"}],
         \"temperature\": 0,
 	\"stream\": true
     }"
