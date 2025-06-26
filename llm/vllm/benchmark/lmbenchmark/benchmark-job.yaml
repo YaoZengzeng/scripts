@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: benchmark-job
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: 192.168.0.126
+      containers:
+      - name: benchmark
+        image: ghcr.io/yaozengzeng/inference-benchmark:latest  # Replace with your actual image
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: MODEL
+          value: "deepseek-r1-qwen"
+        - name: BASE_URL
+          value: "http://infer-gateway.matrixinfer-system:80"  # Replace with your actual service name
+        - name: SAVE_FILE_KEY
+          value: "benchmark_results"
+        - name: SCENARIOS
+          value: "short-input"  # Options: all, sharegpt, short-input, long-input
+        - name: QPS_VALUES
+          value: "100"  # Space-separated list of QPS values
+      restartPolicy: Never
+  backoffLimit: 0  # Don't retry on failure 
