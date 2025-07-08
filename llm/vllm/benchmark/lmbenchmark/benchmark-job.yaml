@@ -22,5 +22,19 @@ spec:
           value: "short-input"  # Options: all, sharegpt, short-input, long-input
         - name: QPS_VALUES
           value: "100"  # Space-separated list of QPS values
+        - name: "NUM_USERS_WARMUP"
+          value: "20"
+        - name: "NUM_USERS"
+          value: "15"
+        - name: "NUM_ROUNDS"
+          value: "20"
+        - name: "SYSTEM_PROMPT"
+          value: "1000"
+        - name: "CHAT_HISTORY"
+          value: "20000"
+        - name: "ANSWER_LEN"
+          value: "100"
+        - name: "USE_CHAT_COMPLETIONS"
+          value: "False"
       restartPolicy: Never
   backoffLimit: 0  # Don't retry on failure 
