@@ -6,14 +6,10 @@ spec:
   replicas: 3
   selector:
     matchLabels:
-      adapter.model.aibrix.ai/enabled: "true"
-      model.aibrix.ai/name: "deepseek-r1-1-5b"
       app: "deepseek-r1-1-5b"
   template:
     metadata:
       labels:
-        adapter.model.aibrix.ai/enabled: "true"
-        model.aibrix.ai/name: "deepseek-r1-1-5b"
         app: "deepseek-r1-1-5b"
     spec:
       serviceAccountName: mocked-app-sa
@@ -33,16 +29,12 @@ spec:
   replicas: 3
   selector:
     matchLabels:
-      adapter.model.aibrix.ai/enabled: "true"
-      model.aibrix.ai/name: "deepseek-r1-1-5b"
       app: "deepseek-r1-1-5b"
       role: "decode"
       infergroup: "sample"
   template:
     metadata:
       labels:
-        adapter.model.aibrix.ai/enabled: "true"
-        model.aibrix.ai/name: "deepseek-r1-1-5b"
         app: "deepseek-r1-1-5b"
         role: "decode"
         infergroup: "sample"
@@ -64,16 +56,12 @@ spec:
   replicas: 3
   selector:
     matchLabels:
-      adapter.model.aibrix.ai/enabled: "true"
-      model.aibrix.ai/name: "deepseek-r1-1-5b"
       app: "deepseek-r1-1-5b"
       role: "prefill"
       infergroup: "sample"
   template:
     metadata:
       labels:
-        adapter.model.aibrix.ai/enabled: "true"
-        model.aibrix.ai/name: "deepseek-r1-1-5b"
         app: "deepseek-r1-1-5b"
         role: "prefill"
         infergroup: "sample"
@@ -95,14 +83,10 @@ spec:
   replicas: 3
   selector:
     matchLabels:
-      adapter.model.aibrix.ai/enabled: "true"
-      model.aibrix.ai/name: "deepseek-r1-7b"
       app: "deepseek-r1-7b"
   template:
     metadata:
       labels:
-        adapter.model.aibrix.ai/enabled: "true"
-        model.aibrix.ai/name: "deepseek-r1-7b"
         app: "deepseek-r1-7b"
     spec:
       serviceAccountName: mocked-app-sa
