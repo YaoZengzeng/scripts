@@ -11,6 +11,6 @@ spec:
       - name: benchmark
         image: ghcr.io/yaozengzeng/sglang-benchmark:qwen-7b
         imagePullPolicy: IfNotPresent
-        args: ["--host", "http://infer-gateway.yzz", "--backend", "vllm", "--port", "80", "--model", "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"]
+        args: ["--host", "10.96.85.194", "--backend", "vllm", "--port", "80", "--model", "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B", "--tokenizer", "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"]
       restartPolicy: Never
   backoffLimit: 0  # Don't retry on failure 
