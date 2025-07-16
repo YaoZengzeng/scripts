@@ -1,0 +1,15 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sglang-benchmark-job
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: 192.168.0.126
+      containers:
+      - name: benchmark
+        image: ghcr.io/yaozengzeng/sglang-benchmark:qwen-7b  # Replace with your actual image
+        imagePullPolicy: IfNotPresent
+      restartPolicy: Never
+  backoffLimit: 0  # Don't retry on failure 
