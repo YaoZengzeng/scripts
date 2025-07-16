@@ -9,7 +9,8 @@ spec:
         kubernetes.io/hostname: 192.168.0.126
       containers:
       - name: benchmark
-        image: ghcr.io/yaozengzeng/sglang-benchmark:qwen-7b  # Replace with your actual image
+        image: ghcr.io/yaozengzeng/sglang-benchmark:qwen-7b
         imagePullPolicy: IfNotPresent
+        args: ["--host", "http://infer-gateway.yzz", "--backend", "vllm", "--port", "80", "--model", "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"]
       restartPolicy: Never
   backoffLimit: 0  # Don't retry on failure 
