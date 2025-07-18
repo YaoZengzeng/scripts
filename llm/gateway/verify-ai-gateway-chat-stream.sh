@@ -10,5 +10,5 @@ curl -v http://$HOST/v1/chat/completions \
         \"model\": \"$MODEL\",
         \"messages\": [{\"role\": \"user\", \"content\": \"Who are you?\"}],
         \"temperature\": 0,
-	\"stream\": true
+	    \"stream\": true
     }"
