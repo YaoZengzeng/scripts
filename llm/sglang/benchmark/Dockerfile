@@ -16,7 +16,10 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     echo 'export PATH="/root/.cargo/bin:$PATH"' >> ~/.bashrc && \
     . ~/.bashrc
 
-RUN git clone https://github.com/sgl-project/sglang.git
+RUN git clone https://github.com/YaoZengzeng/sglang.git && \
+    cd sglang && \
+    git fetch && \
+    git checkout benchmark --
 
 RUN pip install aiohttp numpy requests tqdm transformers datasets pybase64 huggingface_hub modelscope
 

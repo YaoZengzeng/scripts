@@ -1,6 +1,6 @@
 #!/bin/bash
 
-containerid="2a50eba55855"
+containerid="30766fbc6413"
 
 image="ghcr.io/yaozengzeng/sglang-benchmark:qwen-7b"
 
