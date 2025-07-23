@@ -14,6 +14,9 @@ spec:
         #command: ["/bin/bash", "-c", "sleep infinity"]
         #args: ["--host", "10.96.85.194", "--backend", "vllm", "--port", "80", "--model", "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B", "--tokenizer", "/root/.cache/huggingface/hub/models--deepseek-ai--DeepSeek-R1-Distill-Qwen-7B/snapshots/916b56a44061fd5cd7d6a8fb632557ed4f724f60/"]
         args: ["--host", "10.96.85.194", "--backend", "vllm", "--port", "80", "--model", "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", "--tokenizer", "/root/.cache/huggingface/hub/models--deepseek-ai--DeepSeek-R1-Distill-Qwen-7B/snapshots/916b56a44061fd5cd7d6a8fb632557ed4f724f60/", "--dataset-name", "generated-shared-prefix", "--gsp-num-groups", "256", "--gsp-prompts-per-group", "16", "--gsp-system-prompt-len", "256", "--gsp-question-len", "2048", "--gsp-output-len", "256", "--request-rate", "10", "--max-concurrency", "10"]
+        volumeMounts:
+        - name: sglang-benchmark-cache
+          mountPath: /root/.cache/sglang/benchmark
         resources:
           requests:
             cpu: "4"
@@ -22,4 +25,9 @@ spec:
             cpu: "4"
             memory: "8Gi"
       restartPolicy: Never
+      volumes:
+      - name: sglang-benchmark-cache
+        hostPath:
+          path: /root/sglang-cache
+          type: Directory
   backoffLimit: 0  # Don't retry on failure 
