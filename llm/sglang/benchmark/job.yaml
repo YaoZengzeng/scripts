@@ -17,13 +17,6 @@ spec:
         volumeMounts:
         - name: sglang-benchmark-cache
           mountPath: /root/.cache/sglang/benchmark
-        resources:
-          requests:
-            cpu: "4"
-            memory: "8Gi"
-          limits:
-            cpu: "4"
-            memory: "8Gi"
       restartPolicy: Never
       volumes:
       - name: sglang-benchmark-cache
