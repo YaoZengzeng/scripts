@@ -30,4 +30,4 @@ RUN . ~/.bashrc && \
 
 RUN wget -P /tmp https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json
 
-ENTRYPOINT ["python3", "sglang/python/sglang/bench_serving.py", "--backend", "vllm"]
+ENTRYPOINT ["python3", "sglang/python/sglang/bench_serving.py"]
