@@ -25,7 +25,7 @@ logging:
 
 envoy_bootstrap:
   node:
-    id: "test-id" 
+    id: "waypoint~10.244.0.25~waypoint-56954c5d7f-rlml4.default~default.svc.cluster.local"
 
   dynamic_resources:
     ads_config:
@@ -53,4 +53,4 @@ envoy_bootstrap:
                     address:
                       socket_address:
                         address: 127.0.0.1
-                        port_value: 18000
+                        port_value: 15010
