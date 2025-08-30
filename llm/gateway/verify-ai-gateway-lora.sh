@@ -1,6 +1,6 @@
 #!/bin/bash
 
-MODEL="${1:-"Lora-A"}"
+MODEL="${1:-"lora-A"}"
 
 HOST="${HOST:-127.0.0.1:80}"
 
