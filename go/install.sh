@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION=1.21.1
+VERSION=1.23.0
 
 wget https://go.dev/dl/go$VERSION.linux-amd64.tar.gz
 
