@@ -4,27 +4,26 @@
 
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/raw/main/config/manifests/vllm/sim-deployment.yaml
 
-# install the inference extension CRD
-
+# Install the Inference Extension CRDs
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/latest/download/manifests.yaml
 
-# deploy InferenceModel
+# Deploy the InferencePool and Endpoint Picker Extension
 
-kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/raw/main/config/manifests/inferencemodel.yaml
-
-# deploy InferencePool and Endpoint Picker Extension
-
-kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/raw/main/config/manifests/inferencepool-resources.yaml
+export GATEWAY_PROVIDER=istio
+helm install vllm-llama3-8b-instruct \
+--set inferencePool.modelServers.matchLabels.app=vllm-llama3-8b-instruct \
+--set provider.name=$GATEWAY_PROVIDER \
+--version v1.0.0 \
+oci://registry.k8s.io/gateway-api-inference-extension/charts/inferencepool
 
 ### install istio
 
-TAG=1.27-alpha.0551127f00634403cddd4634567e65a8ecc499a7
+TAG=$(curl https://storage.googleapis.com/istio-build/dev/1.28-dev)
 
 wget https://storage.googleapis.com/istio-build/dev/$TAG/istioctl-$TAG-linux-amd64.tar.gz
-
 tar -xvf istioctl-$TAG-linux-amd64.tar.gz
 
-./istioctl install --set tag=$TAG --set hub=gcr.io/istio-testing
+./istioctl install --set tag=$TAG --set hub=gcr.io/istio-testing --set values.pilot.env.ENABLE_GATEWAY_API_INFERENCE_EXTENSION=true
 
 # destination rule to skip verification
 
