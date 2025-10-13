@@ -1,3 +1,7 @@
 #!/bin/bash
 
-bash /root/scripts/portforward/forward.sh networking-infer-gateway 80 matrixinfer-system
+SVC="${1:-"kthena-router"}"
+
+NS="${2:-"kthena-system"}"
+
+bash /root/scripts/portforward/forward.sh $SVC 80 $NS
