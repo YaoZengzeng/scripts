@@ -1,0 +1,13 @@
+[Unit]
+Description=My Custom Startup Application
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/scripts/ss
+ExecStart=/root/scripts/ss/ssserver.sh
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
