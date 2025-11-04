@@ -28,5 +28,5 @@ EOF
 # 通过ipFamily指定使用的协议栈，取值为：ipv4, ipv6和dual
 
 
-kubectl cluster-info --context $NAME
+kubectl cluster-info --context kind-$NAME
 
