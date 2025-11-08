@@ -62,3 +62,5 @@ alias dr="docker run"
 alias dc="docker cp"
 
 alias configdump="curl http://127.0.0.1:15000/config_dump"
+
+export KUBECONFIG=$HOME/.kube/config:$HOME/.kube/config-dev
