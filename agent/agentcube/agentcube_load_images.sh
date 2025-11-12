@@ -1,6 +1,6 @@
 #!/bin/bash
 
-cd agentcube
+cd /root/agentcube
 
 make docker-build
 
