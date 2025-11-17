@@ -2,13 +2,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: my-app
-  namespace: default
+  namespace: test
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: sandbox-manager
-  namespace: default
+  namespace: test
 rules:
 - apiGroups: ["agents.x-k8s.io"]
   resources: ["sandboxes"]
@@ -18,7 +18,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: my-app-sandbox-manager
-  namespace: default
+  namespace: test
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -26,4 +26,9 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: my-app
-  namespace: default
+  namespace: test
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test
