@@ -1,15 +1,32 @@
 #!/bin/bash
 
 SVC="$1"
-PORT="$2"
-NAMESPACE="${3:-default}"
+LOCAL_PORT="$2"
+SERVICE_PORT="$3"
+NAMESPACE="${4:-default}"
 
-if [ -z "$SVC" ] || [ -z "$PORT" ]; then
-    echo "Usage: $0 <service-name> <port> [namespace]"
+# Backward compatible: if only 2 arguments, use same port for both
+if [ -z "$SERVICE_PORT" ]; then
+    SERVICE_PORT="$LOCAL_PORT"
+fi
+
+if [ -z "$SVC" ] || [ -z "$LOCAL_PORT" ] || [ -z "$SERVICE_PORT" ]; then
+    echo "Usage: $0 <service-name> <local-port> <service-port> [namespace]"
+    echo "       $0 <service-name> <port>  (backward compatible: same port for both)"
     exit 1
 fi
 
-echo "Starting port-forward: $SVC:$PORT (namespace: $NAMESPACE)"
+# Validate ports are numbers
+if ! [[ "$LOCAL_PORT" =~ ^[0-9]+$ ]] || ! [[ "$SERVICE_PORT" =~ ^[0-9]+$ ]]; then
+    echo "Error: Ports must be numeric"
+    exit 1
+fi
+
+if [ "$LOCAL_PORT" != "$SERVICE_PORT" ]; then
+    echo "Starting port-forward: $SVC:$SERVICE_PORT -> localhost:$LOCAL_PORT (namespace: $NAMESPACE)"
+else
+    echo "Starting port-forward: $SVC:$SERVICE_PORT (namespace: $NAMESPACE)"
+fi
 echo "Press Ctrl+C to stop"
 echo "---"
 
@@ -32,7 +49,7 @@ while [ "$STOP" = false ]; do
     fi
     
     # Execute port-forward and capture exit status
-    kubectl port-forward --address 0.0.0.0 svc/"$SVC" "$PORT":"$PORT" -n "$NAMESPACE" 2>&1
+    kubectl port-forward --address 0.0.0.0 svc/"$SVC" "$LOCAL_PORT":"$SERVICE_PORT" -n "$NAMESPACE" 2>&1
     EXIT_CODE=$?
     
     # If user stopped manually (Ctrl+C), don't retry
