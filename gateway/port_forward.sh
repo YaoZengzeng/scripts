@@ -1,10 +1,11 @@
 #!/bin/bash
 
-SVC="${1:-"kthena-router"}"
+# Allow SERVICE_PORT to be configurable via argument 1, default to 80
+SERVICE_PORT="${1:-80}"
 
-NS="${2:-"kthena-system"}"
+SVC="${2:-"networking-kthena-router"}"
 
-# Allow SERVICE_PORT to be configurable via argument 3, default to 80
-SERVICE_PORT="${3:-80}"
+NS="${3:-"kthena-system"}"
+
 
 bash /root/scripts/portforward/forward.sh $SVC 80 $SERVICE_PORT $NS
