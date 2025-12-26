@@ -6,4 +6,4 @@ resource="${1:-"modelroutes"}"
 
 path="/debug/config_dump/$resource"
 
-curl 127.0.0.1:80$path | jq .
+curl 127.0.0.1:8080$path | jq .
