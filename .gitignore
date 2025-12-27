@@ -6,7 +6,3 @@ istio/kmesh/l7_encoder
 istio/build/pilot-discovery
 system/capture.pcap
 ss/shadowsocks-v1.15.3.x86_64-unknown-linux-gnu.tar.xz
-ss/sslocal
-ss/ssmanager
-ss/ssservice
-ss/ssurl
