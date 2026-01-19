@@ -1,7 +1,7 @@
 #!/bin/bash
 
-VERSION="${1:-1.23.0}"
+VERSION="${1:-1.27.5}"
 
-CLUSTER="${2:-kmesh}"
+CLUSTER="${2:-kmesh-testing}"
 
-kind load docker-image istio/pilot:$VERSION-distroless --name $CLUSTER
+kind load docker-image ghcr.io/yaozengzeng/pilot:$VERSION --name $CLUSTER

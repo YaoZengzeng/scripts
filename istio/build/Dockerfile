@@ -1,4 +1,4 @@
-FROM istio/pilot:1.27.2-distroless
+FROM istio/pilot:1.27.5
   
 COPY pilot-discovery /usr/local/bin
 
