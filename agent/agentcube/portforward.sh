@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # This script forwards agentcube services to localhost
-# - agentcube-router: localhost:8080
-# - workloadmanager: localhost:8081
+# - agentcube-router: localhost:8081
+# - workloadmanager: localhost:8080
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FORWARD_SCRIPT="$SCRIPT_DIR/../../portforward/forward.sh"
@@ -43,17 +43,17 @@ echo ""
 
 # Start port-forwards for both services
 # Both services use port 8080
-start_forward "agentcube-router" 8080 8080
+start_forward "agentcube-router" 8081 8080
 ROUTER_PID=$!
 
-start_forward "workloadmanager" 8081 8080
+start_forward "workloadmanager" 8080 8080
 WORKLOAD_PID=$!
 
 echo ""
 echo "=================================="
 echo "Port-forwards started:"
-echo "  agentcube-router: localhost:8080"
-echo "  workloadmanager:  localhost:8081"
+echo "  agentcube-router: localhost:8081"
+echo "  workloadmanager:  localhost:8080"
 echo "=================================="
 echo "Press Ctrl+C to stop all port-forwards"
 echo ""
