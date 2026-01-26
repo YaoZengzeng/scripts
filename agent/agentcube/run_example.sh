@@ -1,9 +1,13 @@
 #!/bin/bash
 
-# run the example
+python3 << 'EOF'
+from agentcube import CodeInterpreterClient
 
-export API_TOKEN=$(kubectl create token my-app -n test --duration=24h)
+#with CodeInterpreterClient(name="my-interpreter") as client:
+#    result = client.run_code("python", "print('Hello from AgentCube!')")
+#    print(result)
 
-cd /root/agentcube/example
-
-go run client.go
+client = CodeInterpreterClient(name="my-interpreter")
+result = client.run_code("python", "print('hello')")
+print(result)
+EOF
