@@ -1,0 +1,62 @@
+apiVersion: workload.serving.volcano.sh/v1alpha1
+kind: ModelServing
+metadata:
+  name: sample-restort
+spec:
+  schedulerName: volcano
+  replicas: 7
+  recoveryPolicy: RoleRecreate
+  template:
+    restartGracePeriodSeconds: 60
+    roles:
+      - name: prefill
+        replicas: 2                 # 1 role replica
+        entryTemplate:               # 1 entry pod
+          spec:
+            containers:
+              - name: entry
+                image: busybox
+                command:
+                  - /bin/bash
+                  - '-c'
+                args:
+                  - while true; do echo entry; sleep 10; done
+        workerReplicas: 3                           # 1 worker pod
+        workerTemplate:
+          spec:
+            containers:
+              - name: worker
+                image: busybox
+                command:
+                  - /bin/bash
+                  - '-c'
+                args:
+                  - while true; do echo worker; sleep 10; done
+      - name: decode
+        replicas: 2                 # 1 role replica
+        entryTemplate:               # 1 entry pod
+          spec:
+            containers:
+              - name: entry
+                image: busybox
+                command:
+                  - /bin/bash
+                  - '-c'
+                args:
+                  - while true; do echo entry; sleep 10; done
+                resources:
+                  limits:
+                    huawei.com/ascend-1980: "1"
+                  requests:
+                    huawei.com/ascend-1980: "1"
+        workerReplicas: 3                           # 1 worker pod
+        workerTemplate:
+          spec:
+            containers:
+              - name: worker
+                image: busybox
+                command:
+                  - /bin/bash
+                  - '-c'
+                args:
+                  - while true; do echo worker; sleep 10; done
