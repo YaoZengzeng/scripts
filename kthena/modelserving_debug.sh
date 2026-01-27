@@ -27,20 +27,25 @@ while true; do
     echo "ModelServing applied successfully"
     echo ""
     
-    # Monitor pod count in default namespace (checking every 1s for 30s)
-    echo "[Step 2/3] Monitoring pod count in default namespace (checking every 1s for 30s)..."
-    echo "Restarting kthena-system pods on every check..."
+    # Monitor pod count in default namespace (checking every 1s for 60s)
+    echo "[Step 2/3] Monitoring pod count in default namespace (checking every 1s for 60s)..."
+    
+    # Pick a random check number (1-60) to restart kthena-system pods
+    RESTART_AT=$((RANDOM % 60 + 1))
+    echo "Will restart kthena-system pods at check #${RESTART_AT}"
     echo ""
     
     success=false
-    for check in {1..120}; do
-        # Restart all pods in kthena-system namespace on every check
-        echo "Check ${check}/30: Restarting kthena-system pods..."
-        kubectl delete pods --all -n kthena-system &>/dev/null
+    for check in {1..60}; do
+        # Restart all pods in kthena-system namespace only at the random check
+        if [ "${check}" -eq "${RESTART_AT}" ]; then
+            echo "Check ${check}/60: Restarting kthena-system pods..."
+            kubectl delete pods --all -n kthena-system &>/dev/null
+        fi
         
         # Check pod count in default namespace
         POD_COUNT=$(kubectl get pods -n default --no-headers 2>/dev/null | wc -l)
-        echo "Check ${check}/30: Pod count = ${POD_COUNT}"
+        echo "Check ${check}/60: Pod count = ${POD_COUNT}"
         
         if [ "${POD_COUNT}" -ge 112 ]; then
             echo "✗ Pod count (${POD_COUNT}) is >= 112, breaking early to retry..."
@@ -48,7 +53,7 @@ while true; do
         fi
         
         # Wait 1 second before next check (skip on last iteration)
-        if [ "${check}" -lt 30 ]; then
+        if [ "${check}" -lt 60 ]; then
             sleep 1
         fi
     done

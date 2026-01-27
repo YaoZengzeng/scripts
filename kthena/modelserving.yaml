@@ -3,7 +3,7 @@ kind: ModelServing
 metadata:
   name: sample-restort
 spec:
-  schedulerName: volcano
+  #schedulerName: volcano
   replicas: 7
   recoveryPolicy: RoleRecreate
   template:
@@ -44,11 +44,6 @@ spec:
                   - '-c'
                 args:
                   - while true; do echo entry; sleep 10; done
-                resources:
-                  limits:
-                    huawei.com/ascend-1980: "1"
-                  requests:
-                    huawei.com/ascend-1980: "1"
         workerReplicas: 3                           # 1 worker pod
         workerTemplate:
           spec:
