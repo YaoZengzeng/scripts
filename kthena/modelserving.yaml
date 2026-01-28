@@ -3,8 +3,8 @@ kind: ModelServing
 metadata:
   name: sample-restort
 spec:
-  #schedulerName: volcano
-  replicas: 7
+  schedulerName: volcano
+  replicas: 4
   recoveryPolicy: RoleRecreate
   template:
     restartGracePeriodSeconds: 60
@@ -15,7 +15,7 @@ spec:
           spec:
             containers:
               - name: entry
-                image: busybox
+                image: nginx
                 command:
                   - /bin/bash
                   - '-c'
@@ -26,7 +26,7 @@ spec:
           spec:
             containers:
               - name: worker
-                image: busybox
+                image: nginx
                 command:
                   - /bin/bash
                   - '-c'
@@ -38,7 +38,7 @@ spec:
           spec:
             containers:
               - name: entry
-                image: busybox
+                image: nginx
                 command:
                   - /bin/bash
                   - '-c'
@@ -49,7 +49,7 @@ spec:
           spec:
             containers:
               - name: worker
-                image: busybox
+                image: nginx
                 command:
                   - /bin/bash
                   - '-c'
