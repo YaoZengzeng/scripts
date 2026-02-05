@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # https://github.com/kubernetes-sigs/agent-sandbox/releases
-export VERSION="v0.1.0"
+export VERSION="v0.1.1"
 
 ACTION="apply"
 

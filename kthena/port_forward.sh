@@ -10,6 +10,6 @@ SERVICE_PORT="${2:-80}"
 SVC="${3:-"kthena-router"}"
 
 # NS is now argument 4, default to "kthena-system"
-NS="${4:-"kthena-system"}"
+NS="${4:-"dev"}"
 
 bash /root/scripts/portforward/forward.sh $SVC $LOCAL_PORT $SERVICE_PORT $NS
