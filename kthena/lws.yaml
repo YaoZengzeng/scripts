@@ -1,0 +1,31 @@
+apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata:
+  name: sample-lws
+spec:
+  replicas: 2
+  leaderWorkerTemplate:
+    size: 3
+    restartPolicy: RecreateGroupOnPodRestart
+    leaderTemplate:
+      spec:
+        schedulerName: volcano
+        containers:
+          - name: leader
+            image: nginx
+            command:
+              - /bin/bash
+              - '-c'
+            args:
+              - while true; do echo leader; sleep 10; done
+    workerTemplate:
+      spec:
+        schedulerName: volcano
+        containers:
+          - name: worker
+            image: nginx
+            command:
+              - /bin/bash
+              - '-c'
+            args:
+              - while true; do echo worker; sleep 10; done
