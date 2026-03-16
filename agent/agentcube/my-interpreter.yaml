@@ -21,3 +21,4 @@ spec:
         memory: "128Mi"
   sessionTimeout: "15m"
   maxSessionDuration: "8h"
+  warmPoolSize: 2
