@@ -1,0 +1,23 @@
+apiVersion: runtime.agentcube.volcano.sh/v1alpha1
+kind: CodeInterpreter
+metadata:
+  name: my-interpreter
+  namespace: default
+spec:
+  ports:
+    - pathPrefix: "/"
+      port: 8080
+      protocol: "HTTP"
+  template:
+    image: ghcr.io/volcano-sh/picod:latest
+    args:
+      - --workspace=/root
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+  sessionTimeout: "15m"
+  maxSessionDuration: "8h"
