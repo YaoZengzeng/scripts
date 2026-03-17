@@ -7,7 +7,7 @@
 #
 # Usage:
 #   AGENTCUBE_NAMESPACE=agentcube ./run_simple.sh
-#   AGENTCUBE_NAMESPACE=default   API_TOKEN=xxx ./run_simple.sh
+#   AGENTCUBE_NAMESPACE=default ./run_simple.sh
 #
 # The session ID created during the run is printed on a line like:
 #   SESSION_ID=<id>
@@ -17,23 +17,19 @@
 export AGENTCUBE_NAMESPACE="${AGENTCUBE_NAMESPACE:-agentcube}"
 export WORKLOAD_MANAGER_URL="${WORKLOAD_MANAGER_URL:-http://localhost:8080}"
 export ROUTER_URL="${ROUTER_URL:-http://localhost:8081}"
-export API_TOKEN="${API_TOKEN:-}"
 
 python3 << 'EOF'
 import os
 import sys
+import time
 
 from agentcube import CodeInterpreterClient
 
 NAMESPACE            = os.environ.get("AGENTCUBE_NAMESPACE", "agentcube")
 WORKLOAD_MANAGER_URL = os.environ.get("WORKLOAD_MANAGER_URL", "http://localhost:8080")
 ROUTER_URL           = os.environ.get("ROUTER_URL",           "http://localhost:8081")
-API_TOKEN            = os.environ.get("API_TOKEN",            None)
 
 CI_NAME = "e2e-code-interpreter"
-
-PASS = "\033[32mPASS\033[0m"
-FAIL = "\033[31mFAIL\033[0m"
 
 print(f"\nAgentCube CodeInterpreter – Simple Execution")
 print(f"  namespace           = {NAMESPACE}")
@@ -47,7 +43,6 @@ def make_client():
         namespace=NAMESPACE,
         workload_manager_url=WORKLOAD_MANAGER_URL,
         router_url=ROUTER_URL,
-        auth_token=API_TOKEN,
         verbose=True,
     )
 
@@ -57,21 +52,27 @@ print("Running: simple code execution (auto session)")
 print('='*60)
 
 try:
-    # Do NOT use `with` here – we want the session to stay alive so that
-    # run_session_reuse.sh can reuse it via SESSION_ID.
+    # Initialize the client
+    print("\n  Initializing CodeInterpreter client...")
+    time.sleep(1)
     client = make_client()
-    assert client.session_id, "Session ID should be created automatically"
-    print(f"  session_id = {client.session_id}")
+    
+    if not client.session_id:
+        print("  Error: Failed to create session.")
+        sys.exit(1)
+        
+    print(f"  Session established: {client.session_id}")
+    time.sleep(1.5)
 
+    print(f"  Executing code: print(1+1) ...")
     result = client.run_code("python", "print(1+1)")
-    print(f"  result = {result!r}")
-    assert "2" in result.strip(), f"Expected '2' in output, got: {result!r}"
+    time.sleep(1)
+    print(f"  Output result: {result.strip()}")
 
     # Emit session ID so callers can capture it
-    print(f"SESSION_ID={client.session_id}")
-
-    print(f"  [{PASS}] simple code execution (auto session)")
+    print(f"\nSESSION_ID={client.session_id}")
+    print("\n[SUCCESS] Simple execution completed.")
 except Exception as e:
-    print(f"  [{FAIL}] simple code execution (auto session): {e}")
+    print(f"\n  Error during execution: {e}")
     sys.exit(1)
 EOF

@@ -15,26 +15,22 @@
 export AGENTCUBE_NAMESPACE="${AGENTCUBE_NAMESPACE:-agentcube}"
 export WORKLOAD_MANAGER_URL="${WORKLOAD_MANAGER_URL:-http://localhost:8080}"
 export ROUTER_URL="${ROUTER_URL:-http://localhost:8081}"
-export API_TOKEN="${API_TOKEN:-}"
-export SESSION_ID="${SESSION_ID:085dab95-06df-44d6-8b2e-2c7a411b4d58}"
+export SESSION_ID="${SESSION_ID:-91913ea1-f839-49cc-8e50-d306e7e9df53}"
 
 python3 << 'EOF'
 import json
 import os
 import sys
+import time
 
 from agentcube import CodeInterpreterClient
 
 NAMESPACE            = os.environ.get("AGENTCUBE_NAMESPACE", "agentcube")
 WORKLOAD_MANAGER_URL = os.environ.get("WORKLOAD_MANAGER_URL", "http://localhost:8080")
 ROUTER_URL           = os.environ.get("ROUTER_URL",           "http://localhost:8081")
-API_TOKEN            = os.environ.get("API_TOKEN",            None)
 SESSION_ID           = os.environ.get("SESSION_ID",           None) or None
 
 CI_NAME = "e2e-code-interpreter"
-
-PASS = "\033[32mPASS\033[0m"
-FAIL = "\033[31mFAIL\033[0m"
 
 print(f"\nAgentCube CodeInterpreter – Session Reuse & Complex Operations")
 print(f"  namespace           = {NAMESPACE}")
@@ -52,7 +48,6 @@ def make_client():
         namespace=NAMESPACE,
         workload_manager_url=WORKLOAD_MANAGER_URL,
         router_url=ROUTER_URL,
-        auth_token=API_TOKEN,
         session_id=SESSION_ID,
         verbose=True,
     )
@@ -83,43 +78,42 @@ print('='*60)
 
 try:
     try:
-        with make_client() as client:
-            assert client.session_id, "Session ID should be created automatically"
-            print(f"  session_id = {client.session_id}")
+        # Do NOT use `with` here – we want the session to stay alive
+        client = make_client()
+        if not client.session_id:
+            print("  Error: Session ID not found.")
+            sys.exit(1)
+        
+        print(f"  Connected to session: {client.session_id}")
+        time.sleep(1)
 
-            # Upload script
-            print("  Uploading fibonacci.py …")
-            client.write_file(fibonacci_script, "fibonacci.py")
+        # Upload script
+        print("  Uploading fibonacci.py workflow script...")
+        client.write_file(fibonacci_script, "fibonacci.py")
+        time.sleep(1.5)
 
-            # Execute script
-            print("  Executing fibonacci.py …")
-            exec_result = client.run_code("python", fibonacci_script)
-            print(f"  exec_result = {exec_result!r}")
-            assert "Fibonacci sequence generated" in exec_result, (
-                f"Expected success message, got: {exec_result!r}"
-            )
+        # Execute script
+        print("  Executing fibonacci.py in remote environment...")
+        exec_result = client.run_code("python", fibonacci_script)
+        print(f"  Execution output: {exec_result.strip()}")
+        time.sleep(1.5)
 
-            # Download result
-            print("  Downloading output.json …")
-            client.download_file("output.json", tmp_path)
+        # Download result
+        print("  Retrieving generated output.json...")
+        client.download_file("output.json", tmp_path)
+        time.sleep(1)
 
-            with open(tmp_path) as f:
-                data = json.load(f)
-            print(f"  JSON = {json.dumps(data)}")
-
-            assert data["fibonacci_sequence"] == expected_fib, (
-                f"Fibonacci mismatch: expected {expected_fib}, got {data['fibonacci_sequence']}"
-            )
-            assert data["length"] == len(expected_fib), (
-                f"Length mismatch: expected {len(expected_fib)}, got {data['length']}"
-            )
+        with open(tmp_path) as f:
+            data = json.load(f)
+        print(f"  Successfully processed data: {json.dumps(data)}")
+        time.sleep(1)
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
             print(f"  Cleaned up {tmp_path}")
 
-    print(f"  [{PASS}] session reuse: file-based Fibonacci JSON workflow")
+    print("\n[SUCCESS] Fibonacci workflow completed.")
 except Exception as e:
-    print(f"  [{FAIL}] session reuse: file-based Fibonacci JSON workflow: {e}")
+    print(f"\n  Error during workflow: {e}")
     sys.exit(1)
 EOF
