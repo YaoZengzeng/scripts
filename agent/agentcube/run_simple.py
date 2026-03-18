@@ -1,4 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env python3
+import os
+import sys
+import time
+
+from agentcube import CodeInterpreterClient
 
 # Simple code execution with auto session creation.
 # Requires port-forwards to be active (see portforward.sh):
@@ -6,30 +11,18 @@
 #   agentcube-router -> localhost:8081
 #
 # Usage:
-#   AGENTCUBE_NAMESPACE=agentcube ./run_simple.sh
-#   AGENTCUBE_NAMESPACE=default ./run_simple.sh
+#   NAMESPACE=default python3 run_simple.py
 #
 # The session ID created during the run is printed on a line like:
 #   SESSION_ID=<id>
-# so that run_session_reuse.sh can reuse it:
-#   SESSION_ID=$(./run_simple.sh | grep '^SESSION_ID=' | cut -d= -f2)
+# so that run_session_reuse.py can reuse it:
+#   SESSION_ID=$(python3 run_simple.py | grep '^SESSION_ID=' | cut -d= -f2) python3 run_session_reuse.py
 
-export AGENTCUBE_NAMESPACE="${AGENTCUBE_NAMESPACE:-agentcube}"
-export WORKLOAD_MANAGER_URL="${WORKLOAD_MANAGER_URL:-http://localhost:8080}"
-export ROUTER_URL="${ROUTER_URL:-http://localhost:8081}"
-
-python3 << 'EOF'
-import os
-import sys
-import time
-
-from agentcube import CodeInterpreterClient
-
-NAMESPACE            = os.environ.get("AGENTCUBE_NAMESPACE", "agentcube")
+NAMESPACE            = os.environ.get("NAMESPACE", "default")
 WORKLOAD_MANAGER_URL = os.environ.get("WORKLOAD_MANAGER_URL", "http://localhost:8080")
 ROUTER_URL           = os.environ.get("ROUTER_URL",           "http://localhost:8081")
 
-CI_NAME = "e2e-code-interpreter"
+CI_NAME = "my-interpreter"
 
 print(f"\nAgentCube CodeInterpreter – Simple Execution")
 print(f"  namespace           = {NAMESPACE}")
@@ -75,4 +68,3 @@ try:
 except Exception as e:
     print(f"\n  Error during execution: {e}")
     sys.exit(1)
-EOF

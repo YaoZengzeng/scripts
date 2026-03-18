@@ -1,23 +1,4 @@
-#!/bin/bash
-
-# Session reuse and complex operations (file-based Fibonacci workflow).
-# Requires port-forwards to be active (see portforward.sh):
-#   workloadmanager -> localhost:8080
-#   agentcube-router -> localhost:8081
-#
-# Usage (reusing the session created by run_simple.sh):
-#   SESSION_ID=$(./run_simple.sh | grep '^SESSION_ID=' | cut -d= -f2)
-#   SESSION_ID=$SESSION_ID ./run_session_reuse.sh
-#
-# Or standalone (a fresh session will be created automatically):
-#   AGENTCUBE_NAMESPACE=agentcube ./run_session_reuse.sh
-
-export AGENTCUBE_NAMESPACE="${AGENTCUBE_NAMESPACE:-agentcube}"
-export WORKLOAD_MANAGER_URL="${WORKLOAD_MANAGER_URL:-http://localhost:8080}"
-export ROUTER_URL="${ROUTER_URL:-http://localhost:8081}"
-export SESSION_ID="${SESSION_ID:-91913ea1-f839-49cc-8e50-d306e7e9df53}"
-
-python3 << 'EOF'
+#!/usr/bin/env python3
 import json
 import os
 import sys
@@ -25,12 +6,20 @@ import time
 
 from agentcube import CodeInterpreterClient
 
-NAMESPACE            = os.environ.get("AGENTCUBE_NAMESPACE", "agentcube")
+# Session reuse and complex operations (file-based Fibonacci workflow).
+# Requires port-forwards to be active (see portforward.sh):
+#   workloadmanager -> localhost:8080
+#   agentcube-router -> localhost:8081
+#
+# Usage (reusing the session created by run_simple.py):
+#   SESSION_ID=$(python3 run_simple.py | grep '^SESSION_ID=' | cut -d= -f2) python3 run_session_reuse.py
+
+NAMESPACE            = os.environ.get("NAMESPACE", "default")
 WORKLOAD_MANAGER_URL = os.environ.get("WORKLOAD_MANAGER_URL", "http://localhost:8080")
 ROUTER_URL           = os.environ.get("ROUTER_URL",           "http://localhost:8081")
-SESSION_ID           = os.environ.get("SESSION_ID",           None) or None
+SESSION_ID           = os.environ.get("SESSION_ID",           None)
 
-CI_NAME = "e2e-code-interpreter"
+CI_NAME = "my-interpreter"
 
 print(f"\nAgentCube CodeInterpreter – Session Reuse & Complex Operations")
 print(f"  namespace           = {NAMESPACE}")
@@ -116,4 +105,3 @@ try:
 except Exception as e:
     print(f"\n  Error during workflow: {e}")
     sys.exit(1)
-EOF
