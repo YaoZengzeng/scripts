@@ -1,3 +1,3 @@
 #!/bin/bash
 
-python3 -m dynamo.frontend --discovery-backend file
+python3 -m dynamo.frontend #--discovery-backend file
