@@ -19,3 +19,5 @@ bash ../kind/install_kind.sh
 bash ../k8s/install_kubectl.sh
 
 bash ../tools/fix_too_many_open_files.sh
+
+apt install jq
