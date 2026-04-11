@@ -1,0 +1,57 @@
+---
+# ── PD Router ───────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sglang-router
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sglang-router
+  template:
+    metadata:
+      labels:
+        app: sglang-router
+    spec:
+      containers:
+        - name: sglang-router
+          image: docker.io/lmsysorg/sglang:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 30000
+          command: ["python3", "-m", "sglang_router.launch_router"]
+          args:
+            - --pd-disaggregation
+            - "--prefill"
+            - "http://sglang-prefill:30000"
+            - "8991"
+            - "--decode"
+            - "http://sglang-decode:30000"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "30000"
+            - "--policy"
+            - "cache_aware"
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              cpu: "1"
+              memory: 2Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sglang-router
+spec:
+  type: NodePort
+  selector:
+    app: sglang-router
+  ports:
+    - port: 30000
+      targetPort: 30000
+      nodePort: 30000

@@ -1,0 +1,214 @@
+# SGLang PD Disaggregation on Kubernetes
+# Two nodes each with one GPU, model: Qwen/Qwen3-0.6B
+#
+# Set your HuggingFace token below if the model requires auth.
+# mooncake is the transfer backend for KV cache between prefill and decode pods;
+# it communicates over TCP and is bundled in the sglang image — no extra deployment needed.
+# Apply: kubectl apply -f k8s-pd-disaggregation.yaml
+
+---
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: nvidia
+handler: nvidia
+
+---
+# ── Prefill Server ──────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sglang-prefill
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: sglang-prefill
+  template:
+    metadata:
+      labels:
+        app: sglang-prefill
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: sglang-prefill
+          image: docker.io/lmsysorg/sglang:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 30000
+              name: http
+            - containerPort: 8991
+              name: bootstrap
+          command: ["python3", "-m", "sglang.launch_server"]
+          args:
+            - "--model-path"
+            - "Qwen/Qwen3-0.6B"
+            - "--host"
+            - "$(POD_IP)"
+            - "--port"
+            - "30000"
+            - "--disaggregation-mode"
+            - "prefill"
+            - "--disaggregation-transfer-backend"
+            - "mooncake"
+            - "--disaggregation-bootstrap-port"
+            - "8991"
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: HF_TOKEN
+              value: <>
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              cpu: "4"
+              memory: 12Gi
+            requests:
+              nvidia.com/gpu: 1
+              cpu: "2"
+              memory: 12Gi
+          volumeMounts:
+            - name: shm
+              mountPath: /dev/shm
+            - name: hf-cache
+              mountPath: /root/.cache/huggingface
+            - name: localtime
+              mountPath: /etc/localtime
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 30000
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 5
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi
+        - name: hf-cache
+          hostPath:
+            path: /root/.cache/huggingface
+            type: DirectoryOrCreate
+        - name: localtime
+          hostPath:
+            path: /etc/localtime
+            type: File
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sglang-prefill
+spec:
+  selector:
+    app: sglang-prefill
+  ports:
+    - port: 30000
+      targetPort: 30000
+      name: http
+    - port: 8991
+      targetPort: 8991
+      name: bootstrap
+
+---
+# ── Decode Server ───────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sglang-decode
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: sglang-decode
+  template:
+    metadata:
+      labels:
+        app: sglang-decode
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: sglang-decode
+          image: docker.io/lmsysorg/sglang:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 30000
+              name: http
+          command: ["python3", "-m", "sglang.launch_server"]
+          args:
+            - "--model-path"
+            - "Qwen/Qwen3-0.6B"
+            - "--host"
+            - "$(POD_IP)"
+            - "--port"
+            - "30000"
+            - "--disaggregation-mode"
+            - "decode"
+            - "--disaggregation-transfer-backend"
+            - "mooncake"
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: HF_TOKEN
+              value: <>
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              cpu: "4"
+              memory: 12Gi
+            requests:
+              nvidia.com/gpu: 1
+              cpu: "2"
+              memory: 12Gi
+          volumeMounts:
+            - name: shm
+              mountPath: /dev/shm
+            - name: hf-cache
+              mountPath: /root/.cache/huggingface
+            - name: localtime
+              mountPath: /etc/localtime
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 30000
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 5
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi
+        - name: hf-cache
+          hostPath:
+            path: /root/.cache/huggingface
+            type: DirectoryOrCreate
+        - name: localtime
+          hostPath:
+            path: /etc/localtime
+            type: File
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sglang-decode
+spec:
+  selector:
+    app: sglang-decode
+  ports:
+    - port: 30000
+      targetPort: 30000
