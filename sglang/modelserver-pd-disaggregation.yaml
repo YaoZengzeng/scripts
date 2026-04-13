@@ -1,0 +1,21 @@
+apiVersion: networking.serving.volcano.sh/v1alpha1
+kind: ModelServer
+metadata:
+  name: sglang-qwen-06b
+  namespace: default
+spec:
+  workloadSelector:
+    matchLabels:
+      app: sglang-qwen-06b
+    pdGroup:
+      groupKey: "modelserving.volcano.sh/group-name"
+      prefillLabels:
+        modelserving.volcano.sh/rolename: "P-instance"
+      decodeLabels:
+        modelserving.volcano.sh/rolename: "D-instance"
+  workloadPort:
+    port: 30000
+  model: "Qwen/Qwen3-0.6B"
+  inferenceEngine: "SGLang"
+  trafficPolicy:
+    timeout: 10s
