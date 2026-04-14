@@ -12,11 +12,6 @@ spec:
       - name: prefill
         replicas: 1
         entryTemplate:
-          metadata:
-            labels:
-              app: sglang-qwen-06b
-              modelserving.volcano.sh/group-name: "group-0"
-              modelserving.volcano.sh/rolename: "P-instance"
           spec:
             containers:
               - name: sglang-prefill
@@ -34,6 +29,7 @@ spec:
                   - "prefill"
                   - "--disaggregation-transfer-backend"
                   - "mooncake"
+                  - "--enable-metrics"
                 env:
                   - name: POD_IP
                     valueFrom:
@@ -58,9 +54,6 @@ spec:
                     mountPath: /dev/shm
                   - name: hf-cache
                     mountPath: /root/.cache/huggingface
-                  - name: localtime
-                    mountPath: /etc/localtime
-                    readOnly: true
                 readinessProbe:
                   httpGet:
                     path: /health
@@ -78,21 +71,12 @@ spec:
                 hostPath:
                   path: /root/.cache/huggingface
                   type: DirectoryOrCreate
-              - name: localtime
-                hostPath:
-                  path: /etc/localtime
-                  type: File
         workerReplicas: 0
 
       # ── Decode ───────────────────────────────────────────
       - name: decode
         replicas: 1
         entryTemplate:
-          metadata:
-            labels:
-              app: sglang-qwen-06b
-              modelserving.volcano.sh/group-name: "group-0"
-              modelserving.volcano.sh/rolename: "D-instance"
           spec:
             containers:
               - name: sglang-decode
@@ -110,6 +94,7 @@ spec:
                   - "decode"
                   - "--disaggregation-transfer-backend"
                   - "mooncake"
+                  - "--enable-metrics"
                 env:
                   - name: POD_IP
                     valueFrom:
@@ -134,9 +119,6 @@ spec:
                     mountPath: /dev/shm
                   - name: hf-cache
                     mountPath: /root/.cache/huggingface
-                  - name: localtime
-                    mountPath: /etc/localtime
-                    readOnly: true
                 readinessProbe:
                   httpGet:
                     path: /health
@@ -154,8 +136,4 @@ spec:
                 hostPath:
                   path: /root/.cache/huggingface
                   type: DirectoryOrCreate
-              - name: localtime
-                hostPath:
-                  path: /etc/localtime
-                  type: File
         workerReplicas: 0
