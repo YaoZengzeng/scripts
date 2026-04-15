@@ -1,5 +1,7 @@
 #!/bin/bash
 
+cp sslocal ssserver ssmanager ssservice ssurl /usr/local/bin/
+
 cp ss.service /etc/systemd/system/
 
 systemctl daemon-reload
