@@ -1,8 +1,12 @@
 #!/bin/bash
 
+URL=${URL:-http://localhost:8000}
+
+MODEL=${MODEL:-Qwen/Qwen3-0.6B}
+
 aiperf profile \
-    --model Qwen/Qwen3-0.6B \
-    --url http://localhost:8000 \
+    --model "$MODEL" \
+    --url "$URL" \
     --endpoint-type chat \
     --streaming \
     --concurrency 10 \
