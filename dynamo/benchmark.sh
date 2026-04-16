@@ -1,8 +1,8 @@
 #!/bin/bash
 
-URL=${URL:-http://localhost:8000}
+URL=${URL:-"http://172.233.68.29:80"}
 
-MODEL=${MODEL:-Qwen/Qwen3-0.6B}
+MODEL=${MODEL:-"Qwen/Qwen3-0.6B"}
 
 aiperf profile \
     --model "$MODEL" \

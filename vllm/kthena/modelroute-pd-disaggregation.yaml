@@ -1,11 +1,11 @@
 apiVersion: networking.serving.volcano.sh/v1alpha1
 kind: ModelRoute
 metadata:
-  name: sglang-qwen-06b
+  name: vllm-qwen-06b
   namespace: default
 spec:
   modelName: "Qwen/Qwen3-0.6B"
   rules:
     - name: "default"
       targetModels:
-        - modelServerName: "sglang-qwen-06b"
+        - modelServerName: "vllm-qwen-06b"
