@@ -1,0 +1,228 @@
+#!/bin/bash
+# -*- indent-tabs-mode: nil; tab-width: 2; sh-indentation: 2; -*-
+#
+# Deploy the llm-d inference-scheduling stack with Istio as the gateway provider.
+# Deploys Qwen/Qwen3-0.6B with 1 replica (resource-constrained / single-GPU friendly).
+#
+# Usage:
+#   ./install-llm-d.sh [install|uninstall|verify]
+#
+# Prerequisites:
+#   - Gateway control plane installed (run install-gateway-control-plane.sh first)
+#   - HuggingFace token secret created in the target namespace:
+#       kubectl create secret generic llm-d-hf-token \
+#         --from-literal=HF_TOKEN=<your-token> -n <namespace>
+#
+# Note: The monitoring stack (Prometheus/PodMonitor) is intentionally disabled.
+#
+# Environment variables:
+#   NAMESPACE             (default: llm-d)
+#   LLM_D_VERSION         (default: main)  git branch/tag of llm-d/llm-d repo
+#   RELEASE_NAME_POSTFIX  (default: inference-scheduling)
+
+set +x
+set -e
+set -o pipefail
+
+# --------------------------------------------------------------------------- #
+# Colour helpers
+# --------------------------------------------------------------------------- #
+COLOR_RESET=$'\e[0m'
+COLOR_GREEN=$'\e[32m'
+COLOR_RED=$'\e[31m'
+
+log_success() { echo "${COLOR_GREEN}✅ $*${COLOR_RESET}"; }
+log_error()   { echo "${COLOR_RED}❌ $*${COLOR_RESET}" >&2; }
+log_info()    { echo "ℹ️  $*"; }
+
+# --------------------------------------------------------------------------- #
+# Pre-flight checks
+# --------------------------------------------------------------------------- #
+for cmd in kubectl helm helmfile git; do
+  if ! command -v "$cmd" &>/dev/null; then
+    log_error "This script depends on \`$cmd\`. Please install it."
+    exit 1
+  fi
+done
+
+# --------------------------------------------------------------------------- #
+# Configuration
+# --------------------------------------------------------------------------- #
+MODE=${1:-install}
+NAMESPACE=${NAMESPACE:-"llm-d"}
+LLM_D_VERSION=${LLM_D_VERSION:-"main"}
+LLM_D_REPO="https://github.com/llm-d/llm-d.git"
+RELEASE_NAME_POSTFIX=${RELEASE_NAME_POSTFIX:-"inference-scheduling"}
+GATEWAY_ENV="istio"
+
+# Model override: Qwen3-0.6B instead of the guide default Qwen3-32B
+MODEL_NAME="Qwen/Qwen3-0.6B"
+MODEL_URI="hf://Qwen/Qwen3-0.6B"
+MODEL_SHORT="Qwen3-0.6B"
+MODEL_SIZE="5Gi"          # 0.6B weights are ~1.2 GB; 5 Gi is generous
+DECODE_REPLICAS=1
+DECODE_TENSOR_PARALLEL=1  # single GPU is sufficient for a 0.6B model
+DECODE_CPU="2"
+DECODE_MEMORY="4Gi"
+# Use the official vLLM image rather than the llm-d custom build.
+# Override with VLLM_IMAGE env var if needed.
+VLLM_IMAGE=${VLLM_IMAGE:-"vllm/vllm-openai:v0.17.1"}
+
+WORK_DIR=$(mktemp -d)
+
+# --------------------------------------------------------------------------- #
+# Helpers
+# --------------------------------------------------------------------------- #
+cleanup() {
+  rm -rf "${WORK_DIR}"
+}
+trap cleanup EXIT
+
+clone_repo() {
+  if [[ ! -d "${WORK_DIR}/llm-d" ]]; then
+    log_info "Cloning llm-d repository (${LLM_D_VERSION})..."
+    local branch_args=()
+    [[ -n "${LLM_D_VERSION}" ]] && branch_args=(--branch "${LLM_D_VERSION}")
+    git clone --depth=1 "${branch_args[@]}" "${LLM_D_REPO}" "${WORK_DIR}/llm-d"
+    log_success "Repository cloned."
+  fi
+}
+
+# Patch values files in-place: small model, single replica, monitoring disabled.
+# Uses sed so no external Python/YAML library is required.
+patch_values() {
+  local ms_values="${1}"
+  local gaie_values="${2}"
+  log_info "Patching values: model=${MODEL_NAME}, replicas=${DECODE_REPLICAS}, tensor=${DECODE_TENSOR_PARALLEL}..."
+
+  # Replace llm-d custom CUDA image with the official vllm/vllm-openai image.
+  sed -i \
+    -e "s|image: ghcr.io/llm-d/llm-d-cuda:[^ ]*|image: ${VLLM_IMAGE}|g" \
+    "${ms_values}"
+
+  # ms-inference-scheduling: model, size, parallelism, resources
+  sed -i \
+    -e "s|uri: \"hf://Qwen/Qwen3-32B\"|uri: \"${MODEL_URI}\"|g" \
+    -e "s|name: \"Qwen/Qwen3-32B\"|name: \"${MODEL_NAME}\"|g" \
+    -e "s|size: 80Gi|size: ${MODEL_SIZE}|g" \
+    -e "s|llm-d\.ai/model: \"Qwen3-32B\"|llm-d.ai/model: \"${MODEL_SHORT}\"|g" \
+    -e "s|tensor: 2|tensor: ${DECODE_TENSOR_PARALLEL}|g" \
+    -e "s|replicas: 8|replicas: ${DECODE_REPLICAS}|g" \
+    -e "s|cpu: '32'|cpu: '${DECODE_CPU}'|g" \
+    -e "s|memory: 100Gi|memory: ${DECODE_MEMORY}|g" \
+    "${ms_values}"
+
+  # Disable PodMonitor (requires Prometheus operator) in ms values
+  sed -i \
+    -e '/podmonitor:/,/enabled:/ s|enabled: true|enabled: false|' \
+    "${ms_values}"
+
+  # Disable Prometheus monitoring in gaie (InferencePool/EPP) values
+  sed -i \
+    -e '/prometheus:/,/enabled:/ s|enabled: true|enabled: false|' \
+    "${gaie_values}"
+
+  log_success "Values patched."
+}
+
+install() {
+  # --- Namespace ---
+  log_info "Creating namespace '${NAMESPACE}'..."
+  kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+
+  # --- Verify HF token secret exists ---
+  if ! kubectl get secret llm-d-hf-token -n "${NAMESPACE}" &>/dev/null; then
+    log_error "HuggingFace token secret 'llm-d-hf-token' not found in namespace '${NAMESPACE}'."
+    log_error "Create it first, then re-run this script:"
+    log_error "  export HF_TOKEN=<your-huggingface-token>"
+    log_error "  kubectl create secret generic llm-d-hf-token --from-literal=HF_TOKEN=\${HF_TOKEN} -n ${NAMESPACE}"
+    exit 1
+  fi
+
+  # --- Clone llm-d repo ---
+  clone_repo
+  local guide_dir="${WORK_DIR}/llm-d/guides/inference-scheduling"
+
+  # --- Patch values for small model + single replica, monitoring disabled ---
+  patch_values \
+    "${guide_dir}/ms-inference-scheduling/values.yaml" \
+    "${guide_dir}/gaie-inference-scheduling/values.yaml"
+
+  # --- Deploy the three Helm releases via helmfile ---
+  #   infra-<postfix>  — Gateway / InferenceGateway
+  #   gaie-<postfix>   — InferencePool + inference-scheduler (EPP)
+  #   ms-<postfix>     — ModelService (vLLM decode pods)
+  log_info "Deploying llm-d inference-scheduling stack (env: ${GATEWAY_ENV}, ns: ${NAMESPACE})..."
+  (
+    cd "${guide_dir}"
+    RELEASE_NAME_POSTFIX="${RELEASE_NAME_POSTFIX}" helmfile apply -e "${GATEWAY_ENV}" -n "${NAMESPACE}"
+  )
+  log_success "llm-d stack deployed."
+
+  # --- HTTPRoute: routes Gateway traffic → InferencePool ---
+  log_info "Applying HTTPRoute for Istio..."
+  kubectl apply -f "${guide_dir}/httproute.yaml" -n "${NAMESPACE}"
+  log_success "HTTPRoute applied."
+
+  verify
+}
+
+uninstall() {
+  clone_repo
+  local guide_dir="${WORK_DIR}/llm-d/guides/inference-scheduling"
+
+  log_info "Removing HTTPRoute..."
+  kubectl delete -f "${guide_dir}/httproute.yaml" -n "${NAMESPACE}" --ignore-not-found || true
+
+  log_info "Destroying llm-d inference-scheduling stack..."
+  (
+    cd "${guide_dir}"
+    RELEASE_NAME_POSTFIX="${RELEASE_NAME_POSTFIX}" helmfile destroy -n "${NAMESPACE}"
+  ) || {
+    log_info "helmfile destroy failed; falling back to manual helm uninstall..."
+    helm uninstall "infra-${RELEASE_NAME_POSTFIX}" -n "${NAMESPACE}" --ignore-not-found || true
+    helm uninstall "gaie-${RELEASE_NAME_POSTFIX}"  -n "${NAMESPACE}" --ignore-not-found || true
+    helm uninstall "ms-${RELEASE_NAME_POSTFIX}"    -n "${NAMESPACE}" --ignore-not-found || true
+  }
+
+  log_success "llm-d inference-scheduling stack removed."
+}
+
+verify() {
+  log_info "Current resources in namespace '${NAMESPACE}':"
+  kubectl get all -n "${NAMESPACE}" 2>/dev/null || true
+
+  local gw_svc="infra-${RELEASE_NAME_POSTFIX}-inference-gateway-istio"
+  log_info ""
+  log_info "To test once all pods are Running:"
+  log_info "  # Terminal 1 — port-forward the Istio gateway service:"
+  log_info "  kubectl port-forward -n ${NAMESPACE} svc/${gw_svc} 8080:80"
+  log_info ""
+  log_info "  # Terminal 2 — send a chat completion request:"
+  log_info "  curl -X POST http://localhost:8080/v1/chat/completions \\"
+  log_info "    -H 'Content-Type: application/json' \\"
+  log_info "    -d '{\"model\": \"${MODEL_NAME}\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello!\"}], \"max_tokens\": 50}'"
+}
+
+# --------------------------------------------------------------------------- #
+# Main
+# --------------------------------------------------------------------------- #
+case "${MODE}" in
+  install)
+    log_info "=== Deploying llm-d (model: ${MODEL_NAME}, replicas: ${DECODE_REPLICAS}) ==="
+    install
+    log_success "=== Deployment complete ==="
+    ;;
+  uninstall)
+    log_info "=== Removing llm-d inference-scheduling ==="
+    uninstall
+    log_success "=== Removal complete ==="
+    ;;
+  verify)
+    verify
+    ;;
+  *)
+    log_error "Unknown mode: '${MODE}'. Usage: $0 [install|uninstall|verify]"
+    exit 1
+    ;;
+esac
