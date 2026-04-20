@@ -66,7 +66,7 @@ DECODE_CPU="2"
 DECODE_MEMORY="4Gi"
 # Use the official vLLM image rather than the llm-d custom build.
 # Override with VLLM_IMAGE env var if needed.
-VLLM_IMAGE=${VLLM_IMAGE:-"vllm/vllm-openai:v0.17.1"}
+VLLM_IMAGE=${VLLM_IMAGE:-"ghcr.io/llm-d/llm-d-cuda:v0.5.1"}
 
 WORK_DIR=$(mktemp -d)
 
@@ -93,6 +93,7 @@ clone_repo() {
 patch_values() {
   local ms_values="${1}"
   local gaie_values="${2}"
+  local infra_config="${3}"
   log_info "Patching values: model=${MODEL_NAME}, replicas=${DECODE_REPLICAS}, tensor=${DECODE_TENSOR_PARALLEL}..."
 
   # Replace llm-d custom CUDA image with the official vllm/vllm-openai image.
@@ -122,6 +123,11 @@ patch_values() {
     -e '/prometheus:/,/enabled:/ s|enabled: true|enabled: false|' \
     "${gaie_values}"
 
+  # Set gateway service type to LoadBalancer in the Istio infra common config
+  sed -i \
+    -e 's|^gateway:|gateway:\n  service:\n    type: LoadBalancer|' \
+    "${infra_config}"
+
   log_success "Values patched."
 }
 
@@ -146,7 +152,8 @@ install() {
   # --- Patch values for small model + single replica, monitoring disabled ---
   patch_values \
     "${guide_dir}/ms-inference-scheduling/values.yaml" \
-    "${guide_dir}/gaie-inference-scheduling/values.yaml"
+    "${guide_dir}/gaie-inference-scheduling/values.yaml" \
+    "${WORK_DIR}/llm-d/guides/prereq/gateway-provider/common-configurations/istio.yaml"
 
   # --- Deploy the three Helm releases via helmfile ---
   #   infra-<postfix>  — Gateway / InferenceGateway
