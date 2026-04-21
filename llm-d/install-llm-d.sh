@@ -1,8 +1,8 @@
 #!/bin/bash
 # -*- indent-tabs-mode: nil; tab-width: 2; sh-indentation: 2; -*-
 #
-# Deploy the llm-d inference-scheduling stack with Istio as the gateway provider.
-# Deploys Qwen/Qwen3-0.6B with 1 replica (resource-constrained / single-GPU friendly).
+# Deploy the llm-d inference stack with Istio as the gateway provider.
+# Deploys Qwen/Qwen3-0.6B with 1 replica, 1 GPU (resource-constrained friendly).
 #
 # Usage:
 #   ./install-llm-d.sh [install|uninstall|verify]
@@ -16,9 +16,12 @@
 # Note: The monitoring stack (Prometheus/PodMonitor) is intentionally disabled.
 #
 # Environment variables:
-#   NAMESPACE             (default: llm-d)
-#   LLM_D_VERSION         (default: main)  git branch/tag of llm-d/llm-d repo
-#   RELEASE_NAME_POSTFIX  (default: inference-scheduling)
+#   NAMESPACE              (default: llm-d)
+#   LLM_D_VERSION          (default: main)  git branch/tag of llm-d/llm-d repo
+#   RELEASE_NAME_POSTFIX   (default: depends on guide)
+#   ENABLE_PRECISE_PREFIX  (default: false)  set "true" to deploy the
+#                          precise-prefix-cache-aware guide with KV-events
+#                          based routing instead of approximate routing.
 
 set +x
 set -e
@@ -52,8 +55,24 @@ MODE=${1:-install}
 NAMESPACE=${NAMESPACE:-"llm-d"}
 LLM_D_VERSION=${LLM_D_VERSION:-"main"}
 LLM_D_REPO="https://github.com/llm-d/llm-d.git"
-RELEASE_NAME_POSTFIX=${RELEASE_NAME_POSTFIX:-"inference-scheduling"}
+ENABLE_PRECISE_PREFIX=${ENABLE_PRECISE_PREFIX:-"false"}
 GATEWAY_ENV="istio"
+
+# Select the guide based on ENABLE_PRECISE_PREFIX
+if [[ "${ENABLE_PRECISE_PREFIX}" == "true" ]]; then
+  GUIDE_SUBDIR="precise-prefix-cache-aware"
+  DEFAULT_RN_POSTFIX="kv-events"
+  MS_VALUES_DIR="ms-kv-events"
+  GAIE_VALUES_DIR="gaie-kv-events"
+  GUIDE_LABEL="precise-prefix-cache-aware"
+else
+  GUIDE_SUBDIR="inference-scheduling"
+  DEFAULT_RN_POSTFIX="inference-scheduling"
+  MS_VALUES_DIR="ms-inference-scheduling"
+  GAIE_VALUES_DIR="gaie-inference-scheduling"
+  GUIDE_LABEL="inference-scheduling"
+fi
+RELEASE_NAME_POSTFIX=${RELEASE_NAME_POSTFIX:-"${DEFAULT_RN_POSTFIX}"}
 
 # Model override: Qwen3-0.6B instead of the guide default Qwen3-32B
 MODEL_NAME="Qwen/Qwen3-0.6B"
@@ -96,12 +115,12 @@ patch_values() {
   local infra_config="${3}"
   log_info "Patching values: model=${MODEL_NAME}, replicas=${DECODE_REPLICAS}, tensor=${DECODE_TENSOR_PARALLEL}..."
 
-  # Replace llm-d custom CUDA image with the official vllm/vllm-openai image.
+  # Replace llm-d custom CUDA image.
   sed -i \
     -e "s|image: ghcr.io/llm-d/llm-d-cuda:[^ ]*|image: ${VLLM_IMAGE}|g" \
     "${ms_values}"
 
-  # ms-inference-scheduling: model, size, parallelism, resources
+  # Model, size, parallelism, resources
   sed -i \
     -e "s|uri: \"hf://Qwen/Qwen3-32B\"|uri: \"${MODEL_URI}\"|g" \
     -e "s|name: \"Qwen/Qwen3-32B\"|name: \"${MODEL_NAME}\"|g" \
@@ -112,6 +131,13 @@ patch_values() {
     -e "s|cpu: '32'|cpu: '${DECODE_CPU}'|g" \
     -e "s|memory: 100Gi|memory: ${DECODE_MEMORY}|g" \
     "${ms_values}"
+
+  # Patch model name inside the GAIE pluginsCustomConfig (precise-prefix guide
+  # embeds model names in the scorer / tokenizer plugin YAML).
+  sed -i \
+    -e "s|modelName: Qwen/Qwen3-32B|modelName: ${MODEL_NAME}|g" \
+    -e "s|Qwen/Qwen3-32B|${MODEL_NAME}|g" \
+    "${gaie_values}"
 
   # Disable PodMonitor (requires Prometheus operator) in ms values
   sed -i \
@@ -147,19 +173,19 @@ install() {
 
   # --- Clone llm-d repo ---
   clone_repo
-  local guide_dir="${WORK_DIR}/llm-d/guides/inference-scheduling"
+  local guide_dir="${WORK_DIR}/llm-d/guides/${GUIDE_SUBDIR}"
 
   # --- Patch values for small model + single replica, monitoring disabled ---
   patch_values \
-    "${guide_dir}/ms-inference-scheduling/values.yaml" \
-    "${guide_dir}/gaie-inference-scheduling/values.yaml" \
+    "${guide_dir}/${MS_VALUES_DIR}/values.yaml" \
+    "${guide_dir}/${GAIE_VALUES_DIR}/values.yaml" \
     "${WORK_DIR}/llm-d/guides/prereq/gateway-provider/common-configurations/istio.yaml"
 
   # --- Deploy the three Helm releases via helmfile ---
   #   infra-<postfix>  — Gateway / InferenceGateway
   #   gaie-<postfix>   — InferencePool + inference-scheduler (EPP)
   #   ms-<postfix>     — ModelService (vLLM decode pods)
-  log_info "Deploying llm-d inference-scheduling stack (env: ${GATEWAY_ENV}, ns: ${NAMESPACE})..."
+  log_info "Deploying llm-d ${GUIDE_LABEL} stack (env: ${GATEWAY_ENV}, ns: ${NAMESPACE})..."
   (
     cd "${guide_dir}"
     RELEASE_NAME_POSTFIX="${RELEASE_NAME_POSTFIX}" helmfile apply -e "${GATEWAY_ENV}" -n "${NAMESPACE}"
@@ -176,12 +202,12 @@ install() {
 
 uninstall() {
   clone_repo
-  local guide_dir="${WORK_DIR}/llm-d/guides/inference-scheduling"
+  local guide_dir="${WORK_DIR}/llm-d/guides/${GUIDE_SUBDIR}"
 
   log_info "Removing HTTPRoute..."
   kubectl delete -f "${guide_dir}/httproute.yaml" -n "${NAMESPACE}" --ignore-not-found || true
 
-  log_info "Destroying llm-d inference-scheduling stack..."
+  log_info "Destroying llm-d ${GUIDE_LABEL} stack..."
   (
     cd "${guide_dir}"
     RELEASE_NAME_POSTFIX="${RELEASE_NAME_POSTFIX}" helmfile destroy -n "${NAMESPACE}"
@@ -192,7 +218,7 @@ uninstall() {
     helm uninstall "ms-${RELEASE_NAME_POSTFIX}"    -n "${NAMESPACE}" --ignore-not-found || true
   }
 
-  log_success "llm-d inference-scheduling stack removed."
+  log_success "llm-d ${GUIDE_LABEL} stack removed."
 }
 
 verify() {
@@ -216,12 +242,12 @@ verify() {
 # --------------------------------------------------------------------------- #
 case "${MODE}" in
   install)
-    log_info "=== Deploying llm-d (model: ${MODEL_NAME}, replicas: ${DECODE_REPLICAS}) ==="
+    log_info "=== Deploying llm-d ${GUIDE_LABEL} (model: ${MODEL_NAME}, replicas: ${DECODE_REPLICAS}) ==="
     install
     log_success "=== Deployment complete ==="
     ;;
   uninstall)
-    log_info "=== Removing llm-d inference-scheduling ==="
+    log_info "=== Removing llm-d ${GUIDE_LABEL} ==="
     uninstall
     log_success "=== Removal complete ==="
     ;;
