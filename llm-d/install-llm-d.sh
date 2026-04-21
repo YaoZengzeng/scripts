@@ -79,7 +79,7 @@ MODEL_NAME="Qwen/Qwen3-0.6B"
 MODEL_URI="hf://Qwen/Qwen3-0.6B"
 MODEL_SHORT="Qwen3-0.6B"
 MODEL_SIZE="5Gi"          # 0.6B weights are ~1.2 GB; 5 Gi is generous
-DECODE_REPLICAS=1
+DECODE_REPLICAS=3
 DECODE_TENSOR_PARALLEL=1  # single GPU is sufficient for a 0.6B model
 DECODE_CPU="2"
 DECODE_MEMORY="4Gi"
@@ -122,10 +122,9 @@ patch_values() {
 
   # Model, size, parallelism, resources
   sed -i \
-    -e "s|uri: \"hf://Qwen/Qwen3-32B\"|uri: \"${MODEL_URI}\"|g" \
-    -e "s|name: \"Qwen/Qwen3-32B\"|name: \"${MODEL_NAME}\"|g" \
+    -e "s|Qwen/Qwen3-32B|${MODEL_NAME}|g" \
+    -e "s|Qwen3-32B|${MODEL_SHORT}|g" \
     -e "s|size: 80Gi|size: ${MODEL_SIZE}|g" \
-    -e "s|llm-d\.ai/model: \"Qwen3-32B\"|llm-d.ai/model: \"${MODEL_SHORT}\"|g" \
     -e "s|tensor: 2|tensor: ${DECODE_TENSOR_PARALLEL}|g" \
     -e "s|replicas: 8|replicas: ${DECODE_REPLICAS}|g" \
     -e "s|cpu: '32'|cpu: '${DECODE_CPU}'|g" \
