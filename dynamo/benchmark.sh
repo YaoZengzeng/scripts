@@ -1,6 +1,6 @@
 #!/bin/bash
 
-URL=${URL:-"http://172.233.68.29:80"}
+URL=${URL:-"http://172.233.71.216:80"}
 
 MODEL=${MODEL:-"Qwen/Qwen3-0.6B"}
 
