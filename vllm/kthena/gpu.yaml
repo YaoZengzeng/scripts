@@ -28,7 +28,7 @@ spec:
                     mountPath: /models
             containers:
               - name: server
-                image: ghcr.io/yaozengzeng/vllm-openai:v0.10.0-cu128-nixl-v0.4.1-lmcache-0.3.2
+                image: vllm/vllm-openai:latest
                 command: ["sh", "-c"]
                 args:
                   - |
@@ -39,6 +39,8 @@ spec:
                     --model /models/Qwen3-0.6B \
                     --served-model-name Qwen/Qwen3-0.6B
                 env:
+                  - name: VLLM_USE_V1
+                    value: "1"
                   - name: VLLM_WORKER_MULTIPROC_METHOD
                     value: spawn
                   - name: VLLM_ENABLE_V1_MULTIPROCESSING
