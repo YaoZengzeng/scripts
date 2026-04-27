@@ -1,0 +1,58 @@
+{
+  "total_requests": 1000,
+  "unique_prefixes": 614,
+  "num_prefix_groups": 1,
+  "cache_hit_rate": 0.9600833333333333,
+  "min_isl": 512,
+  "max_isl": 2048,
+  "avg_isl": 1498.624,
+  "min_osl": 32,
+  "max_osl": 512,
+  "avg_osl": 217.376,
+  "prefix_reuse_ratio": 0.866757772463273,
+  "isl_stats": {
+    "mean": 1498.624,
+    "std_dev": 418.9871532923175,
+    "min": 512.0,
+    "p25": 1024.0,
+    "median": 1536.0,
+    "p75": 2048.0,
+    "max": 2048.0
+  },
+  "osl_stats": {
+    "mean": 217.376,
+    "std_dev": 142.07477828242423,
+    "min": 32.0,
+    "p25": 96.0,
+    "median": 192.0,
+    "p75": 320.0,
+    "max": 512.0
+  },
+  "context_length_stats": {
+    "mean": 1490.944,
+    "std_dev": 413.5033214667084,
+    "min": 512.0,
+    "p25": 1024.0,
+    "median": 1536.0,
+    "p75": 1536.0,
+    "max": 2048.0
+  },
+  "unique_prompt_length_stats": {
+    "mean": 7.68,
+    "std_dev": 62.23485839945328,
+    "min": 0.0,
+    "p25": 0.0,
+    "median": 0.0,
+    "p75": 0.0,
+    "max": 512.0
+  },
+  "hit_rate_stats": {
+    "mean": 0.9600833333333333,
+    "std_dev": 0.11503498863872291,
+    "min": 0.0,
+    "p25": 1.0,
+    "median": 1.0,
+    "p75": 1.0,
+    "max": 1.0
+  }
+}
