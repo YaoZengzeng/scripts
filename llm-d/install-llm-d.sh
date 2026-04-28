@@ -41,7 +41,11 @@ log_info()    { echo "ℹ️  $*"; }
 # --------------------------------------------------------------------------- #
 # Pre-flight checks
 # --------------------------------------------------------------------------- #
-for cmd in kubectl helm helmfile git; do
+REQUIRED_CMDS=(kubectl helm git)
+if [[ "${ENABLE_PRECISE_PREFIX:-false}" == "true" ]]; then
+  REQUIRED_CMDS+=(helmfile)
+fi
+for cmd in "${REQUIRED_CMDS[@]}"; do
   if ! command -v "$cmd" &>/dev/null; then
     log_error "This script depends on \`$cmd\`. Please install it."
     exit 1
@@ -65,14 +69,15 @@ if [[ "${ENABLE_PRECISE_PREFIX}" == "true" ]]; then
   MS_VALUES_DIR="ms-kv-events"
   GAIE_VALUES_DIR="gaie-kv-events"
   GUIDE_LABEL="precise-prefix-cache-aware"
+  DEPLOY_METHOD="helmfile"  # precise-prefix still uses helmfile
 else
-  GUIDE_SUBDIR="inference-scheduling"
-  DEFAULT_RN_POSTFIX="inference-scheduling"
-  MS_VALUES_DIR="ms-inference-scheduling"
-  GAIE_VALUES_DIR="gaie-inference-scheduling"
-  GUIDE_LABEL="inference-scheduling"
+  GUIDE_SUBDIR="optimized-baseline"
+  DEFAULT_RN_POSTFIX="optimized-baseline"
+  GUIDE_LABEL="optimized-baseline"
+  DEPLOY_METHOD="helm-kustomize"  # optimized-baseline uses helm + kustomize
 fi
 RELEASE_NAME_POSTFIX=${RELEASE_NAME_POSTFIX:-"${DEFAULT_RN_POSTFIX}"}
+GAIE_VERSION=${GAIE_VERSION:-"v1.4.0"}
 
 # Model override: Qwen3-0.6B instead of the guide default Qwen3-32B
 MODEL_NAME="Qwen/Qwen3-0.6B"
@@ -109,11 +114,11 @@ clone_repo() {
 
 # Patch values files in-place: small model, single replica, monitoring disabled.
 # Uses sed so no external Python/YAML library is required.
-patch_values() {
+patch_values_helmfile() {
   local ms_values="${1}"
   local gaie_values="${2}"
   local infra_config="${3}"
-  log_info "Patching values: model=${MODEL_NAME}, replicas=${DECODE_REPLICAS}, tensor=${DECODE_TENSOR_PARALLEL}..."
+  log_info "Patching helmfile values: model=${MODEL_NAME}, replicas=${DECODE_REPLICAS}, tensor=${DECODE_TENSOR_PARALLEL}..."
 
   # Replace llm-d custom CUDA image.
   sed -i \
@@ -156,6 +161,48 @@ patch_values() {
   log_success "Values patched."
 }
 
+# Patch optimized-baseline kustomize + scheduler values for small model.
+patch_values_kustomize() {
+  local guide_dir="${1}"
+  local patch_file="${guide_dir}/modelserver/gpu/vllm/patch-vllm.yaml"
+  local kustomization="${guide_dir}/modelserver/gpu/vllm/kustomization.yaml"
+  log_info "Patching kustomize values: model=${MODEL_NAME}, replicas=${DECODE_REPLICAS}, tensor=${DECODE_TENSOR_PARALLEL}..."
+
+  # Patch the kustomize Deployment overlay (patch-vllm.yaml)
+  # Remove args unsupported by the target vLLM image
+  sed -i \
+    -e '/--disable-access-log-for-endpoints/d' \
+    "${patch_file}"
+  # Add --disable-log-requests to suppress noisy /metrics and /health access logs
+  sed -i \
+    -e '/--tensor-parallel-size/a\            - "--disable-log-requests"' \
+    "${patch_file}"
+  sed -i \
+    -e "s|\"Qwen/Qwen3-32B\"|\"${MODEL_NAME}\"|g" \
+    -e "s|Qwen/Qwen3-32B|${MODEL_NAME}|g" \
+    -e "s|--tensor-parallel-size=2|--tensor-parallel-size=${DECODE_TENSOR_PARALLEL}|g" \
+    -e "s|replicas: 8|replicas: ${DECODE_REPLICAS}|g" \
+    -e "s|cpu: '16'|cpu: '${DECODE_CPU}'|g" \
+    -e "s|cpu: '8'|cpu: '${DECODE_CPU}'|g" \
+    -e "s|memory: 128Gi|memory: ${DECODE_MEMORY}|g" \
+    -e "s|memory: 96Gi|memory: ${DECODE_MEMORY}|g" \
+    -e "s|nvidia.com/gpu: 2|nvidia.com/gpu: 1|g" \
+    "${patch_file}"
+
+  # Patch kustomization labels
+  sed -i \
+    -e "s|Qwen3-32B|${MODEL_SHORT}|g" \
+    "${kustomization}"
+
+  # Override the vLLM image in kustomization.yaml
+  sed -i \
+    -e "s|newName: vllm/vllm-openai|newName: ${VLLM_IMAGE%:*}|g" \
+    -e "s|newTag: v0\.19\.1|newTag: ${VLLM_IMAGE##*:}|g" \
+    "${kustomization}"
+
+  log_success "Values patched."
+}
+
 install() {
   # --- Namespace ---
   log_info "Creating namespace '${NAMESPACE}'..."
@@ -174,27 +221,48 @@ install() {
   clone_repo
   local guide_dir="${WORK_DIR}/llm-d/guides/${GUIDE_SUBDIR}"
 
-  # --- Patch values for small model + single replica, monitoring disabled ---
-  patch_values \
-    "${guide_dir}/${MS_VALUES_DIR}/values.yaml" \
-    "${guide_dir}/${GAIE_VALUES_DIR}/values.yaml" \
-    "${WORK_DIR}/llm-d/guides/prereq/gateway-provider/common-configurations/istio.yaml"
+  if [[ "${DEPLOY_METHOD}" == "helmfile" ]]; then
+    # --- Helmfile path (precise-prefix-cache-aware) ---
+    patch_values_helmfile \
+      "${guide_dir}/${MS_VALUES_DIR}/values.yaml" \
+      "${guide_dir}/${GAIE_VALUES_DIR}/values.yaml" \
+      "${WORK_DIR}/llm-d/guides/prereq/gateway-provider/common-configurations/istio.yaml"
 
-  # --- Deploy the three Helm releases via helmfile ---
-  #   infra-<postfix>  — Gateway / InferenceGateway
-  #   gaie-<postfix>   — InferencePool + inference-scheduler (EPP)
-  #   ms-<postfix>     — ModelService (vLLM decode pods)
-  log_info "Deploying llm-d ${GUIDE_LABEL} stack (env: ${GATEWAY_ENV}, ns: ${NAMESPACE})..."
-  (
-    cd "${guide_dir}"
-    RELEASE_NAME_POSTFIX="${RELEASE_NAME_POSTFIX}" helmfile apply -e "${GATEWAY_ENV}" -n "${NAMESPACE}"
-  )
-  log_success "llm-d stack deployed."
+    log_info "Deploying llm-d ${GUIDE_LABEL} stack via helmfile (env: ${GATEWAY_ENV}, ns: ${NAMESPACE})..."
+    (
+      cd "${guide_dir}"
+      RELEASE_NAME_POSTFIX="${RELEASE_NAME_POSTFIX}" helmfile apply -e "${GATEWAY_ENV}" -n "${NAMESPACE}"
+    )
+    log_success "llm-d stack deployed."
 
-  # --- HTTPRoute: routes Gateway traffic → InferencePool ---
-  log_info "Applying HTTPRoute for Istio..."
-  kubectl apply -f "${guide_dir}/httproute.yaml" -n "${NAMESPACE}"
-  log_success "HTTPRoute applied."
+    log_info "Applying HTTPRoute for Istio..."
+    kubectl apply -f "${guide_dir}/httproute.yaml" -n "${NAMESPACE}"
+    log_success "HTTPRoute applied."
+  else
+    # --- Helm + Kustomize path (optimized-baseline) ---
+    patch_values_kustomize "${guide_dir}"
+
+    # 1. Deploy the inference scheduler (InferencePool + EPP) via helm
+    local base_values="${WORK_DIR}/llm-d/guides/recipes/scheduler/base.values.yaml"
+    local guide_values="${guide_dir}/scheduler/${GUIDE_SUBDIR}.values.yaml"
+    log_info "Deploying inference scheduler via helm (ns: ${NAMESPACE})..."
+    helm install "${RELEASE_NAME_POSTFIX}" \
+      oci://registry.k8s.io/gateway-api-inference-extension/charts/standalone \
+      -f "${base_values}" \
+      -f "${guide_values}" \
+      -n "${NAMESPACE}" --version "${GAIE_VERSION}"
+    log_success "Inference scheduler deployed."
+
+    # Expose the EPP service as LoadBalancer for external access
+    kubectl patch svc "${RELEASE_NAME_POSTFIX}-epp" -n "${NAMESPACE}" \
+      -p '{"spec":{"type":"LoadBalancer"}}'
+    log_success "EPP service patched to LoadBalancer."
+
+    # 2. Deploy the model server via kustomize
+    log_info "Deploying model server via kustomize (ns: ${NAMESPACE})..."
+    kubectl apply -n "${NAMESPACE}" -k "${guide_dir}/modelserver/gpu/vllm/"
+    log_success "Model server deployed."
+  fi
 
   verify
 }
@@ -203,19 +271,27 @@ uninstall() {
   clone_repo
   local guide_dir="${WORK_DIR}/llm-d/guides/${GUIDE_SUBDIR}"
 
-  log_info "Removing HTTPRoute..."
-  kubectl delete -f "${guide_dir}/httproute.yaml" -n "${NAMESPACE}" --ignore-not-found || true
+  if [[ "${DEPLOY_METHOD}" == "helmfile" ]]; then
+    log_info "Removing HTTPRoute..."
+    kubectl delete -f "${guide_dir}/httproute.yaml" -n "${NAMESPACE}" --ignore-not-found || true
 
-  log_info "Destroying llm-d ${GUIDE_LABEL} stack..."
-  (
-    cd "${guide_dir}"
-    RELEASE_NAME_POSTFIX="${RELEASE_NAME_POSTFIX}" helmfile destroy -n "${NAMESPACE}"
-  ) || {
-    log_info "helmfile destroy failed; falling back to manual helm uninstall..."
-    helm uninstall "infra-${RELEASE_NAME_POSTFIX}" -n "${NAMESPACE}" --ignore-not-found || true
-    helm uninstall "gaie-${RELEASE_NAME_POSTFIX}"  -n "${NAMESPACE}" --ignore-not-found || true
-    helm uninstall "ms-${RELEASE_NAME_POSTFIX}"    -n "${NAMESPACE}" --ignore-not-found || true
-  }
+    log_info "Destroying llm-d ${GUIDE_LABEL} stack via helmfile..."
+    (
+      cd "${guide_dir}"
+      RELEASE_NAME_POSTFIX="${RELEASE_NAME_POSTFIX}" helmfile destroy -n "${NAMESPACE}"
+    ) || {
+      log_info "helmfile destroy failed; falling back to manual helm uninstall..."
+      helm uninstall "infra-${RELEASE_NAME_POSTFIX}" -n "${NAMESPACE}" --ignore-not-found || true
+      helm uninstall "gaie-${RELEASE_NAME_POSTFIX}"  -n "${NAMESPACE}" --ignore-not-found || true
+      helm uninstall "ms-${RELEASE_NAME_POSTFIX}"    -n "${NAMESPACE}" --ignore-not-found || true
+    }
+  else
+    log_info "Removing model server (kustomize)..."
+    kubectl delete -n "${NAMESPACE}" -k "${guide_dir}/modelserver/gpu/vllm/" --ignore-not-found || true
+
+    log_info "Removing inference scheduler (helm)..."
+    helm uninstall "${RELEASE_NAME_POSTFIX}" -n "${NAMESPACE}" --ignore-not-found || true
+  fi
 
   log_success "llm-d ${GUIDE_LABEL} stack removed."
 }
@@ -224,11 +300,18 @@ verify() {
   log_info "Current resources in namespace '${NAMESPACE}':"
   kubectl get all -n "${NAMESPACE}" 2>/dev/null || true
 
-  local gw_svc="infra-${RELEASE_NAME_POSTFIX}-inference-gateway-istio"
   log_info ""
   log_info "To test once all pods are Running:"
-  log_info "  # Terminal 1 — port-forward the Istio gateway service:"
-  log_info "  kubectl port-forward -n ${NAMESPACE} svc/${gw_svc} 8080:80"
+  if [[ "${DEPLOY_METHOD}" == "helmfile" ]]; then
+    local gw_svc="infra-${RELEASE_NAME_POSTFIX}-inference-gateway-istio"
+    log_info "  # Terminal 1 — port-forward the Istio gateway service:"
+    log_info "  kubectl port-forward -n ${NAMESPACE} svc/${gw_svc} 8080:80"
+  else
+    local epp_svc="${RELEASE_NAME_POSTFIX}-epp"
+    log_info "  # Get the external IP of the EPP service:"
+    log_info "  export IP=\$(kubectl get svc ${epp_svc} -n ${NAMESPACE} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+    log_info "  # Then send requests to http://\$IP:9001"
+  fi
   log_info ""
   log_info "  # Terminal 2 — send a chat completion request:"
   log_info "  curl -X POST http://localhost:8080/v1/chat/completions \\"

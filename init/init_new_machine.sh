@@ -23,4 +23,7 @@ bash ../tools/fix_too_many_open_files.sh
 # Install helmfile
 curl -fsSL https://github.com/helmfile/helmfile/releases/download/v1.4.4/helmfile_1.4.4_linux_amd64.tar.gz | tar xz -C /usr/local/bin helmfile
 
+# Install helm-diff plugin (required by helmfile)
+helm plugin install https://github.com/databus23/helm-diff
+
 apt install jq
