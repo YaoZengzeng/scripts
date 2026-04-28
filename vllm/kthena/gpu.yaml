@@ -5,7 +5,7 @@ metadata:
   namespace: default
 spec:
   schedulerName: volcano
-  replicas: 1
+  replicas: 3
   recoveryPolicy: ServingGroupRecreate
   template:
     restartGracePeriodSeconds: 60
