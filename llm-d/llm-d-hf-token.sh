@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export HF_TOKEN=<your-huggingface-token>
+export HF_TOKEN=<>
 export HF_TOKEN_NAME=${HF_TOKEN_NAME:-llm-d-hf-token}
 export NAMESPACE=${NAMESPACE:-llm-d}
 
