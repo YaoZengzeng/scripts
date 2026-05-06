@@ -1,7 +1,7 @@
 apiVersion: workload.serving.volcano.sh/v1alpha1
 kind: ModelServing
 metadata:
-  name: vllm-qwen-06b-kv-aware
+  name: vllm-qwen-06b
   namespace: default
 spec:
   schedulerName: volcano
@@ -29,7 +29,7 @@ spec:
             containers:
               - name: server
                 image: vllm/vllm-openai:latest
-                command: ["sh", "-c"]
+                command: [ "sh", "-c" ]
                 args:
                   - |
                     python3 -m vllm.entrypoints.openai.api_server \
@@ -107,23 +107,11 @@ spec:
                   - name: VLLM_USE_V1
                     value: "1"
                   - name: REDIS_HOST
-                    valueFrom:
-                      configMapKeyRef:
-                        key: REDIS_HOST
-                        name: redis-config
-                        optional: true
+                    value: "redis-server.kthena-system"
                   - name: REDIS_PORT
-                    valueFrom:
-                      configMapKeyRef:
-                        key: REDIS_PORT
-                        name: redis-config
-                        optional: true
+                    value: "6379"
                   - name: REDIS_PASSWORD
-                    valueFrom:
-                      secretKeyRef:
-                        key: REDIS_PASSWORD
-                        name: redis-secret
-                        optional: true
+                    value: ""
                 ports:
                   - containerPort: 8900
                 readinessProbe:
