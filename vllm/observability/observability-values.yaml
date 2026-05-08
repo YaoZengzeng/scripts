@@ -1,0 +1,31 @@
+# Observability values for the vllm-stack helm chart.
+# Use with: helm upgrade <release> vllm-stack/vllm-stack --reuse-values -f observability-values.yaml
+#
+# Ref: https://github.com/vllm-project/production-stack/blob/main/helm/README.md#observability
+
+# Enable ServiceMonitor for serving engine metrics scraping
+servingEngineSpec:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 25s
+
+# Enable ServiceMonitor for router metrics scraping
+routerSpec:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 25s
+
+# Deploy Grafana dashboards as ConfigMaps (auto-discovered by Grafana sidecar)
+grafanaDashboards:
+  enabled: true
+
+# Deploy kube-prometheus-stack as a subchart (Prometheus + Grafana + Alertmanager)
+# Set to false if your cluster already has a prometheus operator installed.
+kube-prometheus-stack:
+  enabled: true
+
+# Deploy prometheus-adapter for custom metrics API (HPA support)
+prometheus-adapter:
+  enabled: true

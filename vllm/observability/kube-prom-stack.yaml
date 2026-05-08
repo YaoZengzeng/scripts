@@ -1,0 +1,52 @@
+# Disable etcd and kubeScheduler rules (managed by cloud providers, metrics not accessible)
+defaultRules:
+  create: true
+  rules:
+    etcd: false
+    kubeScheduler: false
+
+# Disable kubeScheduler scraping (managed by cloud provider)
+kubeScheduler:
+  enabled: false
+
+# Disable etcd scraping (managed by cloud provider)
+kubeEtcd:
+  enabled: false
+
+alertmanager:
+  enabled: true
+
+grafana:
+  enabled: true
+  adminPassword: prom-operator # Change this in production!
+
+prometheusOperator:
+  enabled: true
+
+prometheus:
+  enabled: true
+
+  # Monitor vLLM pods using ServiceMonitor
+  additionalServiceMonitors:
+    - name: "vllm-monitor"
+      selector:
+        matchExpressions:
+          - key: app.kubernetes.io/managed-by
+            operator: In
+            values:
+              - Helm
+          - key: environment
+            operator: In
+            values:
+              - test
+              - router
+          - key: release
+            operator: In
+            values:
+              - test
+              - router
+      namespaceSelector:
+        any: true
+      endpoints:
+        - port: "service-port"
+        - port: "router-sport"
