@@ -26,6 +26,10 @@ prometheusOperator:
 prometheus:
   enabled: true
 
+  prometheusSpec:
+    # Allow PodMonitors from all namespaces
+    podMonitorSelectorNilUsesHelmValues: false
+
   # Monitor vLLM pods using ServiceMonitor
   additionalServiceMonitors:
     - name: "vllm-monitor"

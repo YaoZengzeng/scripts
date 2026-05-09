@@ -33,7 +33,7 @@ else
   echo "$FAIL Grafana pod not found"
 fi
 
-# 3. Check ServiceMonitors
+# 3. Check ServiceMonitors & PodMonitors
 echo ""
 echo "--- ServiceMonitors ---"
 SM_COUNT=$(kubectl get servicemonitors -A --no-headers 2>/dev/null | wc -l)
@@ -41,9 +41,19 @@ VLLM_SM=$(kubectl get servicemonitors -A --no-headers 2>/dev/null | grep -i vllm
 echo "$PASS $SM_COUNT ServiceMonitor(s) found"
 if [[ -n "$VLLM_SM" ]]; then
   echo "$PASS vLLM ServiceMonitor detected:"
-  echo "    $(echo "$VLLM_SM" | awk '{print $1"/"$2}')"
+  echo "$VLLM_SM" | awk '{print "    "$1"/"$2}'
+fi
+
+echo ""
+echo "--- PodMonitors ---"
+PM_COUNT=$(kubectl get podmonitors -A --no-headers 2>/dev/null | wc -l)
+VLLM_PM=$(kubectl get podmonitors -A --no-headers 2>/dev/null | grep -i vllm || true)
+echo "$PASS $PM_COUNT PodMonitor(s) found"
+if [[ -n "$VLLM_PM" ]]; then
+  echo "$PASS vLLM PodMonitor detected:"
+  echo "$VLLM_PM" | awk '{print "    "$1"/"$2}'
 else
-  echo "$WARN No vLLM-specific ServiceMonitor found (ok if using vllm-stack subchart approach)"
+  echo "$WARN No vLLM PodMonitor found — run install.sh to create one"
 fi
 
 # 4. Check Grafana dashboard ConfigMaps
@@ -59,15 +69,33 @@ else
   echo "$WARN No vLLM-specific dashboard ConfigMap found (you can import one manually in Grafana)"
 fi
 
-# 5. Check vLLM endpoints
+# 5. Check vLLM pods & scrape targets
 echo ""
-echo "--- vLLM Endpoints ---"
-VLLM_ENDPOINTS=$(kubectl get endpoints -A --no-headers 2>/dev/null | grep -i vllm || true)
-if [[ -n "$VLLM_ENDPOINTS" ]]; then
-  echo "$PASS vLLM endpoint(s) found:"
-  echo "$VLLM_ENDPOINTS" | awk '{print "    "$1"/"$2}'
+echo "--- vLLM Pods ---"
+VLLM_PODS=$(kubectl get pods -A --no-headers 2>/dev/null | grep -i vllm | grep -v grafana || true)
+if [[ -n "$VLLM_PODS" ]]; then
+  VLLM_POD_COUNT=$(echo "$VLLM_PODS" | wc -l)
+  echo "$PASS $VLLM_POD_COUNT vLLM pod(s) found:"
+  echo "$VLLM_PODS" | awk '{print "    "$1"/"$2" ("$4")"}'
 else
-  echo "$WARN No vLLM endpoints found — deploy vLLM serving engines to start scraping metrics"
+  echo "$WARN No vLLM pods found — deploy vLLM serving engines to start scraping metrics"
+fi
+
+echo ""
+echo "--- Prometheus Scrape Targets ---"
+PROM_SVC=$(kubectl get svc -A --no-headers 2>/dev/null | grep -E "prome.*prometheus " | head -1)
+if [[ -n "$PROM_SVC" ]]; then
+  PROM_NS=$(echo "$PROM_SVC" | awk '{print $1}')
+  PROM_NAME=$(echo "$PROM_SVC" | awk '{print $2}')
+  VLLM_TARGETS=$(kubectl exec -n "$PROM_NS" -c prometheus prometheus-kube-prom-stack-kube-prome-prometheus-0 -- wget -qO- http://localhost:9090/api/v1/targets 2>/dev/null | jq -r '.data.activeTargets[]? | select(.labels.job // "" | test("vllm|pod-monitor")) | "\(.labels.job) -> \(.scrapeUrl) (\(.health))"' 2>/dev/null || true)
+  if [[ -n "$VLLM_TARGETS" ]]; then
+    echo "$PASS Prometheus is scraping vLLM targets:"
+    echo "$VLLM_TARGETS" | while read -r t; do echo "    $t"; done
+  else
+    echo "$WARN No vLLM scrape targets in Prometheus yet"
+  fi
+else
+  echo "$WARN Cannot check — Prometheus service not found"
 fi
 
 # 6. Check Prometheus Adapter / custom metrics
@@ -91,8 +119,10 @@ echo ""
 echo "============================================"
 echo "  Summary"
 echo "============================================"
-echo "  Prometheus:  $(kubectl get svc -A --no-headers 2>/dev/null | grep -c "prome.*prometheus " || echo 0) service(s)"
-echo "  Grafana:     $(kubectl get svc -A --no-headers 2>/dev/null | grep -c grafana || echo 0) service(s)"
-echo "  Dashboards:  $DASHBOARD_COUNT ConfigMap(s)"
-echo "  vLLM scrape: $(if [[ -n "$VLLM_ENDPOINTS" ]]; then echo "active"; else echo "waiting for vLLM pods"; fi)"
+echo "  Prometheus:    $(kubectl get svc -A --no-headers 2>/dev/null | grep -c "prome.*prometheus " || echo 0) service(s)"
+echo "  Grafana:       $(kubectl get svc -A --no-headers 2>/dev/null | grep -c grafana || echo 0) service(s)"
+echo "  Dashboards:    $DASHBOARD_COUNT ConfigMap(s)"
+echo "  PodMonitors:   $PM_COUNT"
+echo "  vLLM pods:     $(echo "$VLLM_PODS" | grep -c . 2>/dev/null || echo 0)"
+echo "  vLLM dashboard: $(if [[ -n "$VLLM_DASHBOARDS" ]]; then echo "loaded"; else echo "not found"; fi)"
 echo "============================================"

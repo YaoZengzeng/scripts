@@ -1,0 +1,33 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: vllm-pod-monitor
+  namespace: monitoring
+  labels:
+    app: vllm
+    release: kube-prom-stack
+spec:
+  # Match vLLM pods across all namespaces
+  namespaceSelector:
+    any: true
+  selector:
+    matchExpressions:
+      # Match pods deployed by Kthena/Volcano ModelServing
+      - key: modelserving.volcano.sh/role
+        operator: Exists
+  podMetricsEndpoints:
+    # vLLM serves metrics on container port 8000
+    # Use relabeling to set the port since pods may not declare containerPort
+    - path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      filterRunning: true
+      relabelings:
+        - sourceLabels: [__address__]
+          targetLabel: __address__
+          regex: (.+?)(?::\d+)?
+          replacement: ${1}:8000
+        # Only scrape the vLLM server container, not init containers
+        - sourceLabels: [__meta_kubernetes_pod_container_name]
+          action: keep
+          regex: server

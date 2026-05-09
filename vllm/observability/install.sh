@@ -31,6 +31,13 @@ if [[ "${STANDALONE:-0}" == "1" ]]; then
     --create-namespace \
     -f "$SCRIPT_DIR/prom-adapter.yaml"
 
+  echo "==> Deploying vLLM PodMonitor and Grafana dashboard..."
+  kubectl apply -f "$SCRIPT_DIR/vllm-podmonitor.yaml"
+  kubectl apply -f "$SCRIPT_DIR/vllm-dashboard-cm.yaml"
+
+  # Restart Grafana to pick up the new dashboard ConfigMap
+  kubectl -n monitoring rollout restart deployment kube-prom-stack-grafana 2>/dev/null || true
+
   echo "==> Done. Grafana: svc/kube-prom-stack-grafana in monitoring namespace"
   echo "    Default credentials: admin / prom-operator"
   exit 0
@@ -43,5 +50,9 @@ helm upgrade "$RELEASE_NAME" vllm-stack/vllm-stack \
   -f "$SCRIPT_DIR/observability-values.yaml" \
   --wait
 
+echo "==> Deploying vLLM PodMonitor and Grafana dashboard..."
+kubectl apply -f "$SCRIPT_DIR/vllm-podmonitor.yaml"
+kubectl apply -f "$SCRIPT_DIR/vllm-dashboard-cm.yaml"
+
 echo "==> Done. Grafana: svc/${RELEASE_NAME}-grafana in $NAMESPACE namespace"
-echo "    Run 'bash port-forward.sh $RELEASE_NAME $NAMESPACE' to access dashboards"
+echo "    Run 'bash port-forward.sh' to access dashboards"
