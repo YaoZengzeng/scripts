@@ -5,7 +5,7 @@ metadata:
   namespace: default
 spec:
   schedulerName: volcano
-  replicas: 1
+  replicas: 3
   recoveryPolicy: ServingGroupRecreate
   template:
     restartGracePeriodSeconds: 60
@@ -29,7 +29,7 @@ spec:
             containers:
               - name: server
                 image: vllm/vllm-openai:latest
-                command: [ "sh", "-c" ]
+                command: ["sh", "-c"]
                 args:
                   - |
                     python3 -m vllm.entrypoints.openai.api_server \
