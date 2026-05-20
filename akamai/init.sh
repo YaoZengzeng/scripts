@@ -20,4 +20,8 @@ STANDALONE=1 bash "$ROOT_DIR/vllm/observability/install.sh"
 echo "==> Deploying Redis standalone..."
 kubectl apply -f "$ROOT_DIR/vllm/kthena/redis-standalone.yaml"
 
+echo "==> Deploying vllm pods"
+
+kubectl apply -f "$ROOT_DIR/vllm/kthena/install_gpu.yaml"
+
 echo "==> Initialization complete."
