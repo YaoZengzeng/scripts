@@ -1,7 +1,9 @@
 #!/bin/bash
 
-kubectl apply -f ./gpu.yaml
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-kubectl apply -f ./modelroute.yaml
+kubectl apply -f "$SCRIPT_DIR/gpu.yaml"
 
-kubectl apply -f ./modelserver.yaml
+kubectl apply -f "$SCRIPT_DIR/modelroute.yaml"
+
+kubectl apply -f "$SCRIPT_DIR/modelserver.yaml"

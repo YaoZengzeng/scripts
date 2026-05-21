@@ -22,6 +22,6 @@ kubectl apply -f "$ROOT_DIR/vllm/kthena/redis-standalone.yaml"
 
 echo "==> Deploying vllm pods"
 
-kubectl apply -f "$ROOT_DIR/vllm/kthena/install_gpu.yaml"
+bash "$ROOT_DIR/vllm/kthena/install_gpu.sh"
 
 echo "==> Initialization complete."
