@@ -1,0 +1,11 @@
+apiVersion: networking.serving.volcano.sh/v1alpha1
+kind: ModelRoute
+metadata:
+  name: vllm-qwen-06b
+  namespace: llm-d
+spec:
+  modelName: "Qwen/Qwen3-0.6B"
+  rules:
+    - name: "default"
+      targetModels:
+        - modelServerName: "vllm-qwen-06b"

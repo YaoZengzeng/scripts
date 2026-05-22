@@ -1,0 +1,107 @@
+apiVersion: workload.serving.volcano.sh/v1alpha1
+kind: ModelServing
+metadata:
+  name: vllm-qwen-06b
+  namespace: default
+spec:
+  schedulerName: volcano
+  replicas: 3
+  recoveryPolicy: ServingGroupRecreate
+  template:
+    restartGracePeriodSeconds: 60
+    roles:
+      - name: server
+        replicas: 1
+        entryTemplate:
+          spec:
+            initContainers:
+              - name: downloader
+                imagePullPolicy: IfNotPresent
+                image: ghcr.io/volcano-sh/downloader:latest
+                args:
+                  - --source
+                  - Qwen/Qwen3-0.6B
+                  - --output-dir
+                  - /models/Qwen3-0.6B/
+                volumeMounts:
+                  - name: models
+                    mountPath: /models
+            containers:
+              - name: server
+                image: vllm/vllm-openai:latest
+                command: ["sh", "-c"]
+                args:
+                  - |
+                    python3 -m vllm.entrypoints.openai.api_server \
+                    --host "0.0.0.0" \
+                    --port "8000" \
+                    --disable-uvicorn-access-log \
+                    --gpu-memory-utilization 0.95 \
+                    --model /models/Qwen3-0.6B \
+                    --served-model-name Qwen/Qwen3-0.6B
+                env:
+                  - name: VLLM_USE_V1
+                    value: "1"
+                  - name: VLLM_WORKER_MULTIPROC_METHOD
+                    value: spawn
+                  - name: VLLM_ENABLE_V1_MULTIPROCESSING
+                    value: "0"
+                  - name: DP_SIZE
+                    value: "1"
+                  - name: TP_SIZE
+                    value: "1"
+                  - name: DP_SIZE_LOCAL
+                    value: "1"
+                  - name: GLOO_SOCKET_IFNAME
+                    value: eth0
+                  - name: NCCL_SOCKET_IFNAME
+                    value: eth0
+                  - name: NCCL_IB_DISABLE
+                    value: "0"
+                  - name: NCCL_IB_GID_INDEX
+                    value: "7"
+                  - name: NCCL_DEBUG
+                    value: "INFO"
+                volumeMounts:
+                  - name: models
+                    mountPath: /models
+                    readOnly: true
+                  - name: shared-mem
+                    mountPath: /dev/shm
+                  - name: torch-compile-cache
+                    mountPath: /.cache
+                resources:
+                  limits:
+                    nvidia.com/gpu: 1
+                startupProbe:
+                  initialDelaySeconds: 15
+                  periodSeconds: 30
+                  failureThreshold: 120
+                  timeoutSeconds: 5
+                  httpGet:
+                    path: /v1/models
+                    port: 8000
+                readinessProbe:
+                  periodSeconds: 5
+                  failureThreshold: 3
+                  timeoutSeconds: 2
+                  httpGet:
+                    path: /v1/models
+                    port: 8000
+                livenessProbe:
+                  periodSeconds: 10
+                  failureThreshold: 3
+                  timeoutSeconds: 5
+                  httpGet:
+                    path: /health
+                    port: 8000
+            volumes:
+              - name: models
+                emptyDir: {}
+              - name: shared-mem
+                emptyDir:
+                  sizeLimit: 20Gi
+                  medium: Memory
+              - name: torch-compile-cache
+                emptyDir: {}
+        workerReplicas: 0
