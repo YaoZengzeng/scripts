@@ -186,19 +186,7 @@ install() {
   log_success "llm-d stack deployed."
 
   # --- Label vLLM decode pods with volcano modelserving identifier ---
-  log_info "Patching decode deployment to add modelserving.volcano.sh/name label..."
-  local decode_deploy
-  decode_deploy=$(kubectl get deploy -n "${NAMESPACE}" -l llm-d.ai/role=decode -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-  if [[ -n "${decode_deploy}" ]]; then
-    kubectl patch deployment "${decode_deploy}" -n "${NAMESPACE}" \
-      --type=json \
-      -p='[{"op":"add","path":"/spec/template/metadata/labels/modelserving.volcano.sh~1name","value":"vllm-qwen-06b"}]'
-    log_success "Label 'modelserving.volcano.sh/name: vllm-qwen-06b' added to pod template."
-  else
-    log_error "Could not find decode deployment to patch. Adding label via kubectl label on existing pods..."
-    kubectl label pods -n "${NAMESPACE}" -l llm-d.ai/role=decode \
-      "modelserving.volcano.sh/name=vllm-qwen-06b" --overwrite
-  fi
+  NAMESPACE="${NAMESPACE}" bash "$(dirname "$0")/label-pods.sh" "${NAMESPACE}"
 
   # --- HTTPRoute: routes Gateway traffic → InferencePool ---
   log_info "Applying HTTPRoute for Istio..."
