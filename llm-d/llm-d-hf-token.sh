@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export HF_TOKEN=<>
+export HF_TOKEN=${HF_TOKEN:?"HF_TOKEN environment variable is required"}
 export HF_TOKEN_NAME=${HF_TOKEN_NAME:-llm-d-hf-token}
 export NAMESPACE=${NAMESPACE:-llm-d}
 
