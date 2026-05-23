@@ -12,7 +12,7 @@ spec:
     any: true
   selector:
     matchExpressions:
-      # Match pods deployed by Kthena/Volcano ModelServing
+      # Match pods deployed by Kthena/Volcano ModelServing OR llm-d
       - key: modelserving.volcano.sh/role
         operator: Exists
   podMetricsEndpoints:
@@ -31,3 +31,33 @@ spec:
         - sourceLabels: [__meta_kubernetes_pod_container_name]
           action: keep
           regex: server
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: vllm-llmd-pod-monitor
+  namespace: monitoring
+  labels:
+    app: vllm
+    release: kube-prom-stack
+spec:
+  # Match llm-d vLLM pods across all namespaces
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      modelserving.volcano.sh/name: vllm-qwen-06b
+  podMetricsEndpoints:
+    - path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      filterRunning: true
+      relabelings:
+        - sourceLabels: [__address__]
+          targetLabel: __address__
+          regex: (.+?)(?::\d+)?
+          replacement: ${1}:8000
+        # Only scrape the vllm container
+        - sourceLabels: [__meta_kubernetes_pod_container_name]
+          action: keep
+          regex: vllm
