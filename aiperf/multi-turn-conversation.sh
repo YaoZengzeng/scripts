@@ -8,15 +8,15 @@ set -euo pipefail
 ###############################################################################
 MODEL="${MODEL:-Qwen/Qwen3-0.6B}"
 TOKENIZER="${TOKENIZER:-}"            # defaults to MODEL if empty
-URL="${URL:-172.236.135.23:80}"
+URL="${URL:-172.236.135.123:80}"
 ENDPOINT_TYPE="${ENDPOINT_TYPE:-chat}"
 STREAMING="${STREAMING:-true}"
 UI="${UI:-dashboard}"
-CONCURRENCY="${CONCURRENCY:-10}"
+CONCURRENCY="${CONCURRENCY:-40}"
 RANDOM_SEED="${RANDOM_SEED:-42}"
 
 # Conversation control
-CONVERSATION_NUM="${CONVERSATION_NUM:-100}"
+CONVERSATION_NUM="${CONVERSATION_NUM:-120}"
 TURN_MEAN="${TURN_MEAN:-10}"
 TURN_STDDEV="${TURN_STDDEV:-0}"
 

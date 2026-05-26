@@ -122,7 +122,12 @@ uninstall_istio() {
 
 verify_installation() {
   log_info "Verifying installation — checking for InferencePool API (v1)..."
-  kubectl api-resources --api-group=inference.networking.k8s.io
+  if kubectl api-resources --api-group=inference.networking.k8s.io 2>/dev/null | grep -q "inferencepools"; then
+    log_success "InferencePool API is available."
+  else
+    log_error "InferencePool API not found. CRDs may not have been applied correctly."
+    exit 1
+  fi
   log_success "Verification complete."
 }
 
