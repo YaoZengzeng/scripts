@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker build --no-cache -t ghcr.io/yaozengzeng/sglang-benchmark:qwen-7b .
+docker build --no-cache -t ghcr.io/yaozengzeng/benchmark:latest .

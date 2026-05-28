@@ -1,52 +1,52 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: sglang-benchmark-job
+  name: benchmark-job
 spec:
   template:
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: kmesh-testing-worker
       containers:
       - name: benchmark
-        image: ghcr.io/yaozengzeng/sglang-benchmark:qwen-7b
+        image: ghcr.io/yaozengzeng/benchmark:latest
         imagePullPolicy: Always
-        #command: ["/bin/bash", "-c", "sleep infinity"]
-        #args: ["--host", "10.96.85.194", "--backend", "vllm", "--port", "80", "--model", "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B", "--tokenizer", "/root/.cache/huggingface/hub/models--deepseek-ai--DeepSeek-R1-Distill-Qwen-7B/snapshots/916b56a44061fd5cd7d6a8fb632557ed4f724f60/"]
+        env:
+        - name: SGLANG_BENCH_GROUP_MODE
+          value: sequential
+        - name: SGLANG_BENCH_GROUP_SIZE
+          value: "16"
         args:
-          - "--host"
-          - "10.96.85.194"
-          - "--backend"
-          - "vllm"
-          - "--port"
-          - "80"
-          - "--model"
-          - "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
-          - "--tokenizer"
-          - "/root/.cache/huggingface/hub/models--deepseek-ai--DeepSeek-R1-Distill-Qwen-7B/snapshots/916b56a44061fd5cd7d6a8fb632557ed4f724f60/"
-          - "--dataset-name"
-          - "generated-shared-prefix"
-          - "--gsp-num-groups"
-          - "256"
-          - "--gsp-prompts-per-group"
-          - "16"
-          - "--gsp-system-prompt-len"
-          - "256"
-          - "--gsp-question-len"
-          - "2048"
-          - "--gsp-output-len"
-          - "256"
-          - "--request-rate"
-          - "10"
-          - "--max-concurrency"
-          - "10"
-        volumeMounts:
-        - name: sglang-benchmark-cache
-          mountPath: /root/.cache/sglang/benchmark
+        - --host
+        - "10.128.41.193"
+        - --backend
+        - "vllm"
+        - --port
+        - "80"
+        - --model
+        - "Qwen/Qwen3-0.6B"
+        - --tokenizer
+        # In restricted network environment, you should pre-download the tokenizer, pack it into the docker image and use the path of downloaded tokenizer as the argument.
+        # README shows how to pre-download the tokenizer.
+        # - "/root/.cache/huggingface/hub/models--deepseek-ai--DeepSeek-R1-Distill-Qwen-7B/snapshots/916b56a44061fd5cd7d6a8fb632557ed4f724f60/
+        - "Qwen/Qwen3-0.6B"
+        - --dataset-name
+        - "generated-shared-prefix"
+        - --gsp-num-groups
+        - "16"
+        - --gsp-prompts-per-group
+        - "16"
+        - --gsp-system-prompt-len
+        - "25600"
+        - --gsp-question-len
+        - "256"
+        - --gsp-output-len
+        - "256"
+        - --request-rate
+        - "5"
+        - --max-concurrency
+        - "16"
+        # If you don't want to generate new test data every time, you can mount the volume to the cache directory.
+        #volumeMounts:
+        #  - name: benchmark-cache
+        #    mountPath: /root/.cache/sglang/benchmark
       restartPolicy: Never
-      volumes:
-      - name: sglang-benchmark-cache
-        hostPath:
-          path: /root/sglang-cache
-          type: Directory
   backoffLimit: 0  # Don't retry on failure 
