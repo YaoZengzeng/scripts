@@ -1,0 +1,154 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-inference-scheduling-llm-d-modelservice-decode
+  namespace: llm-d
+  labels:
+    app.kubernetes.io/version: v0.4.0
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      llm-d.ai/accelerator-variant: gpu
+      llm-d.ai/accelerator-vendor: nvidia
+      llm-d.ai/guide: inference-scheduling
+      llm-d.ai/inference-serving: "true"
+      llm-d.ai/model: Qwen3-0.6B
+      llm-d.ai/role: decode
+  template:
+    metadata:
+      labels:
+        llm-d.ai/accelerator-variant: gpu
+        llm-d.ai/accelerator-vendor: nvidia
+        llm-d.ai/guide: inference-scheduling
+        llm-d.ai/inference-serving: "true"
+        llm-d.ai/model: Qwen3-0.6B
+        llm-d.ai/role: decode
+    spec:
+      serviceAccountName: ms-inference-scheduling-llm-d-modelservice
+      containers:
+        - name: vllm
+          image: ghcr.io/llm-d/llm-d-cuda:v0.5.1
+          command:
+            - vllm
+            - serve
+          args:
+            - Qwen/Qwen3-0.6B
+            - --port
+            - "8000"
+            - --served-model-name
+            - Qwen/Qwen3-0.6B
+            - --disable-uvicorn-access-log
+            - --gpu-memory-utilization=0.95
+            - --kv-events-config
+            - '{"enable_kv_cache_events":true,"topic":"kv-events"}'
+          env:
+            - name: VLLM_USE_V1
+              value: "1"
+            - name: DP_SIZE
+              value: "1"
+            - name: TP_SIZE
+              value: "1"
+            - name: DP_SIZE_LOCAL
+              value: "1"
+            - name: HF_HOME
+              value: /model-cache
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: HF_TOKEN
+                  name: llm-d-hf-token
+          ports:
+            - containerPort: 8000
+              name: vllm
+              protocol: TCP
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "2"
+              memory: 4Gi
+              nvidia.com/gpu: "1"
+          startupProbe:
+            httpGet:
+              path: /v1/models
+              port: vllm
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /v1/models
+              port: vllm
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: vllm
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - mountPath: /.config
+              name: metrics-volume
+            - mountPath: /dev/shm
+              name: shm
+            - mountPath: /.cache
+              name: torch-compile-cache
+            - mountPath: /model-cache
+              name: model-storage
+        - name: runtime
+          image: ghcr.io/yaozengzeng/runtime:latest
+          imagePullPolicy: Always
+          args:
+            - --port
+            - "8900"
+            - --engine
+            - vllm
+            - --engine-base-url
+            - http://localhost:8000
+            - --engine-metrics-path
+            - /metrics
+            - --pod
+            - $(POD_NAME).$(NAMESPACE)
+            - --model
+            - Qwen/Qwen3-0.6B
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: VLLM_USE_V1
+              value: "1"
+            - name: REDIS_HOST
+              value: "redis-server.kthena-system"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              value: ""
+          ports:
+            - containerPort: 8900
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8900
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: metrics-volume
+          emptyDir: {}
+        - name: torch-compile-cache
+          emptyDir: {}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 20Gi
+        - name: model-storage
+          emptyDir:
+            sizeLimit: 5Gi
