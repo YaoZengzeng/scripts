@@ -4,6 +4,10 @@ FROM python:3.12-slim
 # Set working directory
 WORKDIR /app
 
+# Build arguments
+ARG HF_TOKEN=""
+ARG MODEL_ID="Qwen/Qwen3-0.6B"
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     git \
@@ -22,7 +26,7 @@ RUN git clone https://github.com/YaoZengzeng/sglang.git && \
     git fetch && \
     git checkout benchmark --
 
-RUN pip install aiohttp numpy requests tqdm transformers datasets pybase64 huggingface_hub modelscope
+RUN pip install aiohttp numpy requests tqdm transformers datasets pybase64 huggingface_hub modelscope torch --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Create a virtual environment and install dependencies
 RUN . ~/.bashrc && \
@@ -30,5 +34,9 @@ RUN . ~/.bashrc && \
     . .venv/bin/activate
 
 RUN wget -P /tmp https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json
+
+# Pre-download tokenizer at build time to avoid runtime downloads
+RUN --mount=type=secret,id=HF_TOKEN,env=HF_TOKEN \
+    python3 -c "from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('${MODEL_ID}')"
 
 ENTRYPOINT ["python3", "sglang/python/sglang/bench_serving.py"]

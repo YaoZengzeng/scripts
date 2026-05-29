@@ -7,8 +7,8 @@ spec:
     spec:
       containers:
       - name: benchmark
-        image: ghcr.io/yaozengzeng/benchmark:latest
-        imagePullPolicy: Always
+        image: ghcr.io/yaozengzeng/benchmark:qwen-3-0.6b
+        imagePullPolicy: IfNotPresent
         env:
         - name: SGLANG_BENCH_GROUP_MODE
           value: sequential
@@ -16,7 +16,7 @@ spec:
           value: "16"
         args:
         - --host
-        - "10.128.41.193"
+        - "172.236.135.42"
         - --backend
         - "vllm"
         - --port
@@ -35,15 +35,15 @@ spec:
         - --gsp-prompts-per-group
         - "16"
         - --gsp-system-prompt-len
-        - "25600"
+        - "6400"
         - --gsp-question-len
         - "256"
         - --gsp-output-len
         - "256"
         - --request-rate
-        - "5"
+        - "800"
         - --max-concurrency
-        - "16"
+        - "4"
         # If you don't want to generate new test data every time, you can mount the volume to the cache directory.
         #volumeMounts:
         #  - name: benchmark-cache
