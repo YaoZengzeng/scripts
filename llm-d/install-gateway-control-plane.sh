@@ -63,6 +63,11 @@ install_crds() {
   kubectl apply -k \
     "https://github.com/kubernetes-sigs/gateway-api-inference-extension/config/crd/?ref=${GATEWAY_API_INFERENCE_EXTENSION_CRD_REVISION}"
   log_success "Gateway API Inference Extension CRDs installed."
+
+  log_info "Waiting for Inference Extension CRDs to be established..."
+  kubectl wait --for=condition=Established crd/inferencepools.inference.networking.k8s.io --timeout=60s
+  kubectl wait --for=condition=Established crd/inferencemodels.inference.networking.k8s.io --timeout=60s
+  log_success "Inference Extension CRDs are established."
 }
 
 uninstall_crds() {
@@ -122,13 +127,19 @@ uninstall_istio() {
 
 verify_installation() {
   log_info "Verifying installation — checking for InferencePool API (v1)..."
-  if kubectl api-resources --api-group=inference.networking.k8s.io 2>/dev/null | grep -q "inferencepools"; then
-    log_success "InferencePool API is available."
-  else
-    log_error "InferencePool API not found. CRDs may not have been applied correctly."
-    exit 1
-  fi
-  log_success "Verification complete."
+  local retries=10
+  local wait_sec=3
+  for ((i=1; i<=retries; i++)); do
+    if kubectl api-resources --api-group=inference.networking.k8s.io 2>/dev/null | grep -q "inferencepools"; then
+      log_success "InferencePool API is available."
+      log_success "Verification complete."
+      return 0
+    fi
+    log_info "Attempt $i/$retries: InferencePool API not yet available, retrying in ${wait_sec}s..."
+    sleep "$wait_sec"
+  done
+  log_error "InferencePool API not found after ${retries} attempts. CRDs may not have been applied correctly."
+  exit 1
 }
 
 # --------------------------------------------------------------------------- #
