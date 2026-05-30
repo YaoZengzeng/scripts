@@ -66,7 +66,7 @@ install_crds() {
 
   log_info "Waiting for Inference Extension CRDs to be established..."
   kubectl wait --for=condition=Established crd/inferencepools.inference.networking.k8s.io --timeout=60s
-  kubectl wait --for=condition=Established crd/inferencemodels.inference.networking.k8s.io --timeout=60s
+  kubectl wait --for=condition=Established crd/inferencepools.inference.networking.x-k8s.io --timeout=60s
   log_success "Inference Extension CRDs are established."
 }
 

@@ -39,4 +39,10 @@ RUN wget -P /tmp https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_
 RUN --mount=type=secret,id=HF_TOKEN,env=HF_TOKEN \
     python3 -c "from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('${MODEL_ID}')"
 
+# Use offline mode at runtime so transformers never contacts HF Hub
+ENV HF_HUB_OFFLINE=1
+ENV TRANSFORMERS_OFFLINE=1
+# Ensure Python output is unbuffered so logs are visible immediately in containers
+ENV PYTHONUNBUFFERED=1
+
 ENTRYPOINT ["python3", "sglang/python/sglang/bench_serving.py"]
