@@ -11,12 +11,12 @@ spec:
         imagePullPolicy: Always
         env:
         - name: SGLANG_BENCH_GROUP_MODE
-          value: interleaved  # interleaved or sequential
+          value: random  # random, interleaved or sequential
         - name: SGLANG_BENCH_GROUP_SIZE
           value: "16"
         args:
         - --host
-        - "172.236.135.42"
+        - "172.236.134.216"
         - --backend
         - "vllm"
         - --port
@@ -31,19 +31,19 @@ spec:
         - --dataset-name
         - "generated-shared-prefix"
         - --gsp-num-groups
-        - "64"
+        - "4"
         - --gsp-prompts-per-group
-        - "16"
+        - "32"
         - --gsp-system-prompt-len
-        - "6400"
+        - "25600"
         - --gsp-question-len
-        - "256"
+        - "2560"
         - --gsp-output-len
-        - "256"
+        - "2560"
         - --request-rate
         - "800"
         - --max-concurrency
-        - "16"
+        - "32"
         # If you don't want to generate new test data every time, you can mount the volume to the cache directory.
         #volumeMounts:
         #  - name: benchmark-cache
