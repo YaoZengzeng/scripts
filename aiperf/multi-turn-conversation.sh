@@ -8,16 +8,16 @@ set -euo pipefail
 ###############################################################################
 MODEL="${MODEL:-Qwen/Qwen3-0.6B}"
 TOKENIZER="${TOKENIZER:-}"            # defaults to MODEL if empty
-URL="${URL:-172.236.132.47:80}"
+URL="${URL:-172.236.132.118:80}"
 ENDPOINT_TYPE="${ENDPOINT_TYPE:-chat}"
 STREAMING="${STREAMING:-true}"
 UI="${UI:-dashboard}"
-CONCURRENCY="${CONCURRENCY:-10}"
+CONCURRENCY="${CONCURRENCY:-40}"
 RANDOM_SEED="${RANDOM_SEED:-42}"
 
 # Conversation control
-CONVERSATION_NUM="${CONVERSATION_NUM:-40}"
-TURN_MEAN="${TURN_MEAN:-1}"
+CONVERSATION_NUM="${CONVERSATION_NUM:-120}"
+TURN_MEAN="${TURN_MEAN:-10}"
 TURN_STDDEV="${TURN_STDDEV:-0}"
 
 # Turn delays (milliseconds)
@@ -25,7 +25,7 @@ TURN_DELAY_MEAN="${TURN_DELAY_MEAN:-0}"
 TURN_DELAY_STDDEV="${TURN_DELAY_STDDEV:-0}"
 
 # Token parameters
-INPUT_TOKENS_MEAN="${INPUT_TOKENS_MEAN:-20000}"
+INPUT_TOKENS_MEAN="${INPUT_TOKENS_MEAN:-2000}"
 INPUT_TOKENS_STDDEV="${INPUT_TOKENS_STDDEV:-}"    # empty = not set
 OUTPUT_TOKENS_MEAN="${OUTPUT_TOKENS_MEAN:-150}"
 OUTPUT_TOKENS_STDDEV="${OUTPUT_TOKENS_STDDEV:-}"   # empty = not set
