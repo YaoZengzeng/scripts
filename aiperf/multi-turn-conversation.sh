@@ -8,7 +8,7 @@ set -euo pipefail
 ###############################################################################
 MODEL="${MODEL:-Qwen/Qwen3-0.6B}"
 TOKENIZER="${TOKENIZER:-}"            # defaults to MODEL if empty
-URL="${URL:-172.236.133.128:80}"
+URL="${URL:-172.236.135.92:80}"
 ENDPOINT_TYPE="${ENDPOINT_TYPE:-chat}"
 STREAMING="${STREAMING:-true}"
 UI="${UI:-dashboard}"
