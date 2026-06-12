@@ -7,6 +7,8 @@ kubectl -n kthena-system patch deployment kthena-router --type=json -p '[
   {"op": "add", "path": "/spec/template/spec/containers/0/env/-", "value": {"name": "SESSION_BOOST_GRACE_PERIOD", "value": "50ms"}},
   {"op": "add", "path": "/spec/template/spec/containers/0/env/-", "value": {"name": "SESSION_BOOST_POLL_INTERVAL", "value": "100ms"}},
   {"op": "add", "path": "/spec/template/spec/containers/0/env/-", "value": {"name": "SESSION_BOOST_INFLIGHT_PER_POD", "value": "8"}},
+  {"op": "add", "path": "/spec/template/spec/containers/0/env/-", "value": {"name": "SESSION_BOOST_WAIT_PROMOTION_ENABLED", "value": "false"}},
+  {"op": "add", "path": "/spec/template/spec/containers/0/env/-", "value": {"name": "SESSION_BOOST_MAX_WAIT", "value": "10s"}},
   {"op": "replace", "path": "/spec/template/spec/containers/0/image", "value": "ghcr.io/yaozengzeng/kthena-router:latest"},
   {"op": "replace", "path": "/spec/template/spec/containers/0/imagePullPolicy", "value": "Always"}
 ]'
