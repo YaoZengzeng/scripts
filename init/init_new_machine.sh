@@ -27,3 +27,5 @@ curl -fsSL https://github.com/helmfile/helmfile/releases/download/v1.4.4/helmfil
 helm plugin install https://github.com/databus23/helm-diff
 
 apt install jq
+
+apt install python3.10-venv
