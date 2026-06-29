@@ -8,15 +8,15 @@ set -euo pipefail
 ###############################################################################
 MODEL="${MODEL:-Qwen/Qwen3-0.6B}"
 TOKENIZER="${TOKENIZER:-}"            # defaults to MODEL if empty
-URL="${URL:-172.236.133.138:80}"
+URL="${URL:-172.236.132.209:80}"
 ENDPOINT_TYPE="${ENDPOINT_TYPE:-chat}"
 STREAMING="${STREAMING:-true}"
 UI="${UI:-dashboard}"
-CONCURRENCY="${CONCURRENCY:-13}"
+CONCURRENCY="${CONCURRENCY:-40}"
 RANDOM_SEED="${RANDOM_SEED:-42}"
 
 # Conversation control
-CONVERSATION_NUM="${CONVERSATION_NUM:-40}"
+CONVERSATION_NUM="${CONVERSATION_NUM:-120}"
 TURN_MEAN="${TURN_MEAN:-10}"
 TURN_STDDEV="${TURN_STDDEV:-0}"
 
@@ -36,6 +36,11 @@ REQUEST_RATE_MODE="${REQUEST_RATE_MODE:-}" # empty = not set (e.g. poisson)
 
 # Dataset
 NUM_DATASET_ENTRIES="${NUM_DATASET_ENTRIES:-}" # empty = not set
+
+# Retry control (optional)
+MAX_RETRIES="${MAX_RETRIES:-10}"          # empty = not set
+RETRY_DELAY="${RETRY_DELAY:-1}"          # empty = not set (seconds)
+RETRY_MAX_DELAY="${RETRY_MAX_DELAY:-10}"  # empty = not set (seconds)
 
 # Output
 ARTIFACT_DIR="${ARTIFACT_DIR:-artifacts}"
@@ -82,6 +87,10 @@ Environment variables (override defaults):
   REQUEST_RATE         Conversations per second            (default: not set)
   REQUEST_RATE_MODE    Rate mode (e.g. poisson)            (default: not set)
   NUM_DATASET_ENTRIES  Unique prompts to generate          (default: not set)
+
+  MAX_RETRIES          Max retries per request             (default: not set)
+  RETRY_DELAY          Initial retry delay (seconds)       (default: not set)
+  RETRY_MAX_DELAY      Max retry delay (seconds)           (default: not set)
 
   ARTIFACT_DIR         Output directory                    (default: artifacts)
 
@@ -156,6 +165,14 @@ build_rate_args() {
     echo "${args[@]}"
 }
 
+build_retry_args() {
+    local args=()
+    [[ -n "$MAX_RETRIES" ]] && args+=(--max-retries "$MAX_RETRIES")
+    [[ -n "$RETRY_DELAY" ]] && args+=(--retry-delay "$RETRY_DELAY")
+    [[ -n "$RETRY_MAX_DELAY" ]] && args+=(--retry-max-delay "$RETRY_MAX_DELAY")
+    echo "${args[@]}"
+}
+
 run_profile() {
     local conv_num="${1:-$CONVERSATION_NUM}"
     local turn_mean="${2:-$TURN_MEAN}"
@@ -168,12 +185,13 @@ run_profile() {
     local input_stddev="${9:-$INPUT_TOKENS_STDDEV}"
     local output_stddev="${10:-$OUTPUT_TOKENS_STDDEV}"
 
-    local common conversation tokens rate
+    local common conversation tokens rate retry
     common=$(build_common_args)
     conversation=$(build_conversation_args "$conv_num" "$turn_mean" "$turn_stddev" \
                                            "$delay_mean" "$delay_stddev" "$concurrency")
     tokens=$(build_token_args "$input_mean" "$output_mean" "$input_stddev" "$output_stddev")
     rate=$(build_rate_args)
+    retry=$(build_retry_args)
 
     local total_requests=$((conv_num * turn_mean))
     echo "=== AIPerf Multi-Turn Conversation Benchmark ==="
@@ -186,10 +204,11 @@ run_profile() {
     echo "Output tokens:  mean=$output_mean  stddev=${output_stddev:-n/a}"
     echo "Concurrency:    $concurrency"
     [[ -n "$REQUEST_RATE" ]] && echo "Request rate:   $REQUEST_RATE (mode: ${REQUEST_RATE_MODE:-default})"
+    [[ -n "$MAX_RETRIES" ]] && echo "Retries:        max=$MAX_RETRIES  delay=${RETRY_DELAY:-n/a}s  max-delay=${RETRY_MAX_DELAY:-n/a}s"
     echo "================================================="
 
     # shellcheck disable=SC2086
-    aiperf profile $common $conversation $tokens $rate
+    aiperf profile $common $conversation $tokens $rate $retry
 }
 
 ###############################################################################
