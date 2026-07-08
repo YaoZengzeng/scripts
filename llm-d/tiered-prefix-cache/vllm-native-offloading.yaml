@@ -1,0 +1,141 @@
+# =============================================================================
+# vLLM native KV-cache tiered offloading — single-node deployment
+# Based on the llm-d guide: guides/tiered-prefix-cache (release-0.8),
+# the "vLLM native — CPU RAM" path.
+# Simplified to NOT depend on the llm-d Router / Gateway, so it can be deployed
+# with a single command on a k8s cluster that has only 1 GPU.
+#
+# Target environment:
+#   - Single node, single NVIDIA RTX 4000 Ada (20GB VRAM)
+#   - Model: Qwen/Qwen3-0.6B (public model, no HF_TOKEN required)
+#
+# How offloading is enabled (identical to the guide):
+#   --kv-transfer-config '{"kv_connector":"OffloadingConnector",
+#                          "kv_role":"kv_both",
+#                          "kv_connector_extra_config":{"cpu_bytes_to_use":<bytes>}}'
+#   OffloadingConnector is vLLM's built-in (native) CPU offloading connector.
+#   It moves KV blocks evicted from GPU HBM down to CPU RAM, and pulls them
+#   back on demand when they are hit again.
+#
+# One-command deploy:  kubectl apply -f vllm-native-offloading.yaml
+# Verify it works:     ./verify-offloading.sh
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vllm-offloading
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-qwen-offloading
+  namespace: vllm-offloading
+  labels:
+    app: vllm-qwen-offloading
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-qwen-offloading
+  template:
+    metadata:
+      labels:
+        app: vllm-qwen-offloading
+    spec:
+      containers:
+        - name: vllm
+          # This image = upstream vLLM; the guide validated the native
+          # OffloadingConnector works with it. You may replace it with a
+          # matching version of vllm/vllm-openai (it must support the
+          # cpu_bytes_to_use config format).
+          image: ghcr.io/llm-d/llm-d-cuda:v0.5.1
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              exec vllm serve Qwen/Qwen3-0.6B \
+                --port 8000 \
+                --served-model-name Qwen/Qwen3-0.6B \
+                --gpu-memory-utilization 0.90 \
+                --max-model-len 32768 \
+                --enable-prefix-caching \
+                --num-gpu-blocks-override 512 \
+                --kv-transfer-config '{"kv_connector":"OffloadingConnector","kv_role":"kv_both","kv_connector_extra_config":{"cpu_bytes_to_use":4294967296}}'
+              # Notes:
+              #   --enable-prefix-caching        Offloading depends on prefix caching (on by
+              #                                  default in V1; declared explicitly here).
+              #   --num-gpu-blocks-override 512  Deliberately shrink the GPU KV block count to a
+              #                                  small value (512*16 ~= 8K tokens). A 0.6B model on
+              #                                  a 20GB card has a huge GPU KV cache, so eviction
+              #                                  almost never happens and offloading is not
+              #                                  observable. Shrinking it lets a few slightly
+              #                                  longer / distinct-prefix requests trigger eviction
+              #                                  -> spill to CPU. Remove this line in production.
+              #   cpu_bytes_to_use=4294967296    CPU RAM offload capacity = 4GiB (the guide's
+              #                                  default is 100GB; scaled down for a single node).
+          env:
+            - name: HF_HOME
+              value: /model-cache
+            - name: VLLM_LOGGING_LEVEL
+              value: INFO
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          resources:
+            limits:
+              cpu: "4"
+              # Must be > cpu_bytes_to_use (4Gi) + model/runtime overhead
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "2"
+              memory: 8Gi
+              nvidia.com/gpu: "1"
+          startupProbe:
+            httpGet:
+              path: /v1/models
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /v1/models
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: shm
+              mountPath: /dev/shm
+            - name: model-cache
+              mountPath: /model-cache
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi
+        - name: model-cache
+          emptyDir:
+            sizeLimit: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-qwen-offloading
+  namespace: vllm-offloading
+  labels:
+    app: vllm-qwen-offloading
+spec:
+  selector:
+    app: vllm-qwen-offloading
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP
