@@ -1,15 +1,12 @@
 #!/bin/bash
 
+# Session boost is now configured at install time via install_chart.sh
+# (--session-boost and related flags, mapped to
+# networking.kthenaRouter.sessionBoost.*). Keep this script focused on the
+# non-session-boost overrides only.
+
 # Use kubectl set env for idempotent env var updates (avoids duplicates on re-run)
 kubectl -n kthena-system set env deployment/kthena-router \
-  ENABLE_SESSION_BOOST=true \
-  SESSION_BOOST_HEADER=X-Correlation-ID \
-  SESSION_BOOST_TTL=60s \
-  SESSION_BOOST_GRACE_PERIOD=50ms \
-  SESSION_BOOST_MAX_SESSIONS=4096 \
-  SESSION_BOOST_INFLIGHT_PER_POD=8 \
-  SESSION_BOOST_WAIT_REJECT_ENABLED=true \
-  SESSION_BOOST_MAX_WAIT=15s \
   METRICS_SCRAPE_INTERVAL=50ms
 
 # Patch image and imagePullPolicy separately
