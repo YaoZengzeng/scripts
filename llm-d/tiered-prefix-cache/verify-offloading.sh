@@ -23,20 +23,14 @@ NAMESPACE="vllm-offloading"
 DEPLOY="vllm-qwen-offloading"
 SVC="vllm-qwen-offloading"
 MODEL="Qwen/Qwen3-0.6B"
-LOCAL_PORT="18000"
-BASE="http://127.0.0.1:${LOCAL_PORT}"
+SVC_PORT="8000"
+BASE=""  # resolved from the LoadBalancer ingress below
 
 # ---- Color output ---------------------------------------------------------
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 blue()  { printf '\033[34m%s\033[0m\n' "$*"; }
 hr()    { printf '%s\n' "------------------------------------------------------------"; }
-
-PF_PID=""
-cleanup() {
-  [[ -n "${PF_PID}" ]] && kill "${PF_PID}" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
 
 # ---- 1. Wait for the deployment to be ready -------------------------------
 blue "[1/6] Waiting for Deployment/${DEPLOY} to become ready (pulling image + downloading model may take a while)..."
@@ -47,16 +41,36 @@ fi
 POD=$(kubectl -n "${NAMESPACE}" get pod -l app="${DEPLOY}" -o jsonpath='{.items[0].metadata.name}')
 green "Pod: ${POD}"
 
-# ---- 2. Port-forward -------------------------------------------------------
-blue "[2/6] Setting up port-forward svc/${SVC} 8000 -> localhost:${LOCAL_PORT} ..."
-kubectl -n "${NAMESPACE}" port-forward "svc/${SVC}" "${LOCAL_PORT}:8000" >/dev/null 2>&1 &
-PF_PID=$!
-for _ in $(seq 1 30); do
+# ---- 2. Resolve the LoadBalancer endpoint ---------------------------------
+blue "[2/6] Waiting for the LoadBalancer external address of svc/${SVC} ..."
+LB_ADDR=""
+for _ in $(seq 1 60); do
+  LB_ADDR=$(kubectl -n "${NAMESPACE}" get svc "${SVC}" \
+    -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+  if [[ -z "${LB_ADDR}" ]]; then
+    # Some providers publish a hostname instead of an IP.
+    LB_ADDR=$(kubectl -n "${NAMESPACE}" get svc "${SVC}" \
+      -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+  fi
+  [[ -n "${LB_ADDR}" ]] && break
+  sleep 5
+done
+if [[ -z "${LB_ADDR}" ]]; then
+  red "LoadBalancer external address not assigned yet."
+  red "Check: kubectl -n ${NAMESPACE} get svc ${SVC}"
+  red "If your cluster has no LoadBalancer provider, install one (e.g. MetalLB) or fall back to port-forward."
+  exit 1
+fi
+BASE="http://${LB_ADDR}:${SVC_PORT}"
+green "LoadBalancer endpoint: ${BASE}"
+
+blue "      Waiting for vLLM to be reachable at ${BASE}/v1/models ..."
+for _ in $(seq 1 60); do
   if curl -s "${BASE}/v1/models" >/dev/null 2>&1; then break; fi
-  sleep 1
+  sleep 2
 done
 if ! curl -s "${BASE}/v1/models" >/dev/null 2>&1; then
-  red "Cannot reach vLLM /v1/models"
+  red "Cannot reach vLLM /v1/models at ${BASE}"
   exit 1
 fi
 green "vLLM is reachable."

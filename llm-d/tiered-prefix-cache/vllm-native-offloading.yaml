@@ -132,6 +132,7 @@ metadata:
   labels:
     app: vllm-qwen-offloading
 spec:
+  type: LoadBalancer
   selector:
     app: vllm-qwen-offloading
   ports:
