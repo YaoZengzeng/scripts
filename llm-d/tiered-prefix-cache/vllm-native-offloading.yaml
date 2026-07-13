@@ -44,11 +44,12 @@ spec:
     spec:
       containers:
         - name: vllm
-          # This image = upstream vLLM; the guide validated the native
-          # OffloadingConnector works with it. You may replace it with a
-          # matching version of vllm/vllm-openai (it must support the
-          # cpu_bytes_to_use config format).
-          image: ghcr.io/llm-d/llm-d-cuda:v0.5.1
+          # Official upstream vLLM image. v0.24.0+ exposes the KV-offload
+          # Prometheus metrics (vllm:kv_offload_store_bytes / _load_bytes),
+          # which the verify script uses to confirm offloading. v0.25.0 is the
+          # latest stable. The --kv-transfer-config cpu_bytes_to_use format is
+          # unchanged. Image is CUDA 13; RTX 4000 Ada (SM 8.9) is supported.
+          image: vllm/vllm-openai:v0.25.0
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -56,11 +57,16 @@ spec:
                 --port 8000 \
                 --served-model-name Qwen/Qwen3-0.6B \
                 --gpu-memory-utilization 0.90 \
-                --max-model-len 32768 \
+                --max-model-len 8192 \
                 --enable-prefix-caching \
                 --num-gpu-blocks-override 512 \
                 --kv-transfer-config '{"kv_connector":"OffloadingConnector","kv_role":"kv_both","kv_connector_extra_config":{"cpu_bytes_to_use":4294967296}}'
               # Notes:
+              #   --max-model-len 8192           Must be <= the token capacity implied by
+              #                                  --num-gpu-blocks-override (512 * 16 = 8192).
+              #                                  vLLM v0.24+ hard-fails at startup if the GPU KV
+              #                                  cache cannot hold a single max-len request, so
+              #                                  this MUST match the block override below.
               #   --enable-prefix-caching        Offloading depends on prefix caching (on by
               #                                  default in V1; declared explicitly here).
               #   --num-gpu-blocks-override 512  Deliberately shrink the GPU KV block count to a
@@ -69,7 +75,8 @@ spec:
               #                                  almost never happens and offloading is not
               #                                  observable. Shrinking it lets a few slightly
               #                                  longer / distinct-prefix requests trigger eviction
-              #                                  -> spill to CPU. Remove this line in production.
+              #                                  -> spill to CPU. Remove this line (and raise
+              #                                  --max-model-len) in production.
               #   cpu_bytes_to_use=4294967296    CPU RAM offload capacity = 4GiB (the guide's
               #                                  default is 100GB; scaled down for a single node).
           env:
