@@ -1,0 +1,374 @@
+# =============================================================================
+# Native vLLM EPD (Encode / Prefill / Decode) disaggregation on a SINGLE GPU
+# Model : Qwen/Qwen2-VL-2B-Instruct (multimodal, vision-language)
+# GPU   : 1x RTX 4000 Ada (20 GB) -- all 3 vLLM engines + proxy share GPU 0
+# NOTE  : This uses vLLM's *native* Disaggregated Encoder feature (EC transfer
+#         + NixlConnector). It does NOT use llm-d / the coordinator repo.
+#
+# Because a single physical GPU can only be claimed by one Pod in Kubernetes,
+# the Encode, Prefill and Decode engines run as separate PROCESSES inside ONE
+# Pod / ONE container (all sharing GPU 0 via CUDA_VISIBLE_DEVICES=0). A tiny
+# FastAPI proxy fans multimodal items to the encoder, primes the prefill
+# engine, then streams from the decode engine -- exposing one OpenAI endpoint.
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: epd-disagg
+---
+# Optional: Hugging Face token (Qwen2-VL is public, token only needed if gated
+# or to avoid rate limits). Leave empty to skip.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hf-token
+  namespace: epd-disagg
+type: Opaque
+stringData:
+  token: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: epd-scripts
+  namespace: epd-disagg
+data:
+  # ---------------------------------------------------------------------------
+  # Startup script: launches E, P, D engines (background) then the proxy (fg).
+  # ---------------------------------------------------------------------------
+  start-epd.sh: |
+    #!/bin/bash
+    set -uo pipefail
+
+    MODEL="${MODEL:-Qwen/Qwen2-VL-2B-Instruct}"
+    EC_PATH="${EC_SHARED_STORAGE_PATH:-/dev/shm/ec_cache}"
+
+    ENCODE_PORT=8001
+    PREFILL_PORT=8002
+    DECODE_PORT=8003
+    PROXY_PORT=8000
+
+    # Memory split across the single 20GB GPU (fractions of total device mem).
+    # Encoder uses --mm-encoder-only (vision tower only) so it needs little.
+    GPU_MEM_E="${GPU_MEM_E:-0.15}"
+    GPU_MEM_P="${GPU_MEM_P:-0.35}"
+    GPU_MEM_D="${GPU_MEM_D:-0.35}"
+    MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
+    MAX_NUM_SEQS="${MAX_NUM_SEQS:-64}"
+
+    export CUDA_VISIBLE_DEVICES=0
+    export UCX_TLS=all
+    export UCX_NET_DEVICES=all
+    export VLLM_LOGGING_LEVEL="${VLLM_LOGGING_LEVEL:-INFO}"
+
+    echo "[start-epd] MODEL=$MODEL  EC_PATH=$EC_PATH"
+    rm -rf "$EC_PATH"; mkdir -p "$EC_PATH"
+
+    # NIXL is required by NixlConnector (P->D KV transfer). Nightly images ship
+    # it; install as a fallback just in case.
+    python -c "import nixl" 2>/dev/null || pip install --no-cache-dir nixl || true
+
+    declare -a PIDS=()
+    cleanup() {
+      echo "[start-epd] shutting down..."
+      for p in "${PIDS[@]:-}"; do kill "$p" 2>/dev/null || true; done
+      exit 0
+    }
+    trap cleanup INT TERM
+
+    wait_for() {
+      local port=$1 name=$2
+      echo "[start-epd] waiting for $name on :$port ..."
+      until curl -sf "localhost:$port/health" >/dev/null 2>&1; do sleep 3; done
+      echo "[start-epd] $name is ready."
+    }
+
+    EC_PRODUCER="{\"ec_connector\":\"ECExampleConnector\",\"ec_role\":\"ec_producer\",\"ec_connector_extra_config\":{\"shared_storage_path\":\"$EC_PATH\"}}"
+    EC_CONSUMER="{\"ec_connector\":\"ECExampleConnector\",\"ec_role\":\"ec_consumer\",\"ec_connector_extra_config\":{\"shared_storage_path\":\"$EC_PATH\"}}"
+
+    # ----- Encode engine (vision encoder only) --------------------------------
+    vllm serve "$MODEL" --port "$ENCODE_PORT" --trust-remote-code \
+      --gpu-memory-utilization "$GPU_MEM_E" \
+      --enforce-eager --enable-request-id-headers \
+      --no-enable-prefix-caching --mm-encoder-only \
+      --max-num-batched-tokens 32768 --max-num-seqs "$MAX_NUM_SEQS" \
+      --ec-transfer-config "$EC_PRODUCER" &
+    PIDS+=($!)
+
+    # ----- Prefill engine (consumes EC, produces KV) --------------------------
+    VLLM_NIXL_SIDE_CHANNEL_PORT=5559 \
+    vllm serve "$MODEL" --port "$PREFILL_PORT" --trust-remote-code \
+      --gpu-memory-utilization "$GPU_MEM_P" \
+      --enforce-eager --enable-request-id-headers \
+      --max-model-len "$MAX_MODEL_LEN" --max-num-seqs "$MAX_NUM_SEQS" \
+      --ec-transfer-config "$EC_CONSUMER" \
+      --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_producer"}' &
+    PIDS+=($!)
+
+    # ----- Decode engine (consumes KV) ----------------------------------------
+    VLLM_NIXL_SIDE_CHANNEL_PORT=6000 \
+    vllm serve "$MODEL" --port "$DECODE_PORT" --trust-remote-code \
+      --gpu-memory-utilization "$GPU_MEM_D" \
+      --enforce-eager \
+      --max-model-len "$MAX_MODEL_LEN" --max-num-seqs "$MAX_NUM_SEQS" \
+      --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_consumer"}' &
+    PIDS+=($!)
+
+    wait_for "$ENCODE_PORT"  "encode"
+    wait_for "$PREFILL_PORT" "prefill"
+    wait_for "$DECODE_PORT"  "decode"
+    echo "[start-epd] all engines ready -> starting proxy on :$PROXY_PORT"
+
+    # PREFILL_URLS=disable collapses to E + PD (encoder + combined prefill/decode)
+    PREFILL_URLS="${PREFILL_URLS:-http://localhost:$PREFILL_PORT}"
+
+    exec python /config/disagg_epd_proxy.py \
+      --host 0.0.0.0 --port "$PROXY_PORT" \
+      --encode-servers-urls  "http://localhost:$ENCODE_PORT" \
+      --prefill-servers-urls "$PREFILL_URLS" \
+      --decode-servers-urls  "http://localhost:$DECODE_PORT"
+
+  # ---------------------------------------------------------------------------
+  # OpenAI-compatible EPD proxy (compact port of vLLM's disagg_epd_proxy.py).
+  # ---------------------------------------------------------------------------
+  disagg_epd_proxy.py: |
+    #!/usr/bin/env python3
+    # Routes /v1/chat/completions across encode / prefill / decode engines.
+    import argparse, asyncio, logging, random, uuid
+    import aiohttp, uvicorn
+    from fastapi import FastAPI, HTTPException, Request
+    from fastapi.responses import JSONResponse, StreamingResponse
+
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s: %(message)s")
+    logger = logging.getLogger("epd-proxy")
+    app = FastAPI()
+    sess = {"encode": None, "prefill": None, "decode": None}
+    MM_TYPES = {"image_url", "audio_url", "input_audio", "video_url"}
+
+    def extract_mm_items(data):
+        items = []
+        for msg in data.get("messages", []):
+            content = msg.get("content")
+            if isinstance(content, list):
+                for item in content:
+                    if item.get("type") in MM_TYPES:
+                        items.append(item)
+        return items
+
+    async def run_encoders(data, e_urls, req_id):
+        mm = extract_mm_items(data)
+        if not mm:
+            return
+        logger.info("[%s] priming %d mm item(s) on encoder", req_id, len(mm))
+        tasks = []
+        for idx, item in enumerate(mm):
+            url = e_urls[idx % len(e_urls)]
+            child = f"{req_id}:{idx}:{uuid.uuid4().hex[:6]}"
+            payload = {"model": data.get("model"),
+                       "messages": [{"role": "user", "content": [item]}],
+                       "max_tokens": 1, "stream": False}
+            tasks.append(sess["encode"].post(f"{url}/v1/chat/completions",
+                                             json=payload,
+                                             headers={"x-request-id": child}))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, Exception):
+                raise HTTPException(502, f"encoder failed: {r}")
+            if r.status != 200:
+                raise HTTPException(r.status, f"encoder failed: {await r.text()}")
+            await r.release()
+
+    async def run_prefill(data, p_url, req_id):
+        if not p_url:
+            return data
+        pr = dict(data)
+        pr["kv_transfer_params"] = {"do_remote_decode": True,
+                                    "do_remote_prefill": False,
+                                    "remote_engine_id": None,
+                                    "remote_block_ids": None,
+                                    "remote_host": None, "remote_port": None}
+        pr["stream"] = False
+        pr["max_tokens"] = 1
+        pr.pop("max_completion_tokens", None)
+        pr.pop("stream_options", None)
+        async with sess["prefill"].post(f"{p_url}/v1/chat/completions", json=pr,
+                                        headers={"x-request-id": req_id}) as resp:
+            if resp.status != 200:
+                raise HTTPException(resp.status, f"prefill failed: {await resp.text()}")
+            body = await resp.json()
+        ktp = body.get("kv_transfer_params")
+        if ktp:
+            data["kv_transfer_params"] = ktp
+        return data
+
+    @app.post("/v1/chat/completions")
+    async def chat(request: Request):
+        data = await request.json()
+        req_id = request.headers.get("x-request-id", str(uuid.uuid4()))
+        e_urls = app.state.e_urls
+        p_url = random.choice(app.state.p_urls) if app.state.p_urls else None
+        d_url = random.choice(app.state.d_urls)
+        await run_encoders(data, e_urls, req_id)
+        data = await run_prefill(data, p_url, req_id)
+        headers = {"x-request-id": req_id}
+        if data.get("stream"):
+            async def gen():
+                async with sess["decode"].post(f"{d_url}/v1/chat/completions",
+                                               json=data, headers=headers) as resp:
+                    resp.raise_for_status()
+                    async for chunk in resp.content.iter_chunked(1024):
+                        if chunk:
+                            yield chunk.decode("utf-8", errors="ignore")
+            return StreamingResponse(gen(), media_type="text/event-stream")
+        async with sess["decode"].post(f"{d_url}/v1/chat/completions",
+                                       json=data, headers=headers) as resp:
+            if resp.status != 200:
+                raise HTTPException(resp.status, f"decode failed: {await resp.text()}")
+            return JSONResponse(await resp.json())
+
+    @app.get("/v1/models")
+    async def models():
+        async with sess["decode"].get(f"{app.state.d_urls[0]}/v1/models") as resp:
+            return JSONResponse(await resp.json())
+
+    @app.get("/health")
+    async def health():
+        return JSONResponse({"proxy": "healthy"})
+
+    @app.on_event("startup")
+    async def _start():
+        to = aiohttp.ClientTimeout(total=100000)
+        for k in sess:
+            sess[k] = aiohttp.ClientSession(timeout=to,
+                                            connector=aiohttp.TCPConnector(limit=0))
+
+    if __name__ == "__main__":
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--host", default="0.0.0.0")
+        ap.add_argument("--port", type=int, default=8000)
+        ap.add_argument("--encode-servers-urls", required=True)
+        ap.add_argument("--prefill-servers-urls", required=True)
+        ap.add_argument("--decode-servers-urls", required=True)
+        a = ap.parse_args()
+        app.state.e_urls = [u.strip() for u in a.encode_servers_urls.split(",") if u.strip()]
+        app.state.d_urls = [u.strip() for u in a.decode_servers_urls.split(",") if u.strip()]
+        if a.prefill_servers_urls.lower() in ("disable", "none", ""):
+            app.state.p_urls = []
+            logger.info("Prefill disabled -> running E + PD")
+        else:
+            app.state.p_urls = [u.strip() for u in a.prefill_servers_urls.split(",") if u.strip()]
+            logger.info("Running E + P + D")
+        uvicorn.run(app, host=a.host, port=a.port, log_level="info", loop="uvloop")
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: epd-disagg
+  namespace: epd-disagg
+  labels:
+    app: epd-disagg
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: epd-disagg
+  template:
+    metadata:
+      labels:
+        app: epd-disagg
+    spec:
+      containers:
+        - name: epd
+          # Requires a vLLM build that includes the Disaggregated Encoder / EC
+          # transfer feature. Use nightly (tracks main) or pin a build that has it.
+          image: vllm/vllm-openai:nightly
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/config/start-epd.sh"]
+          env:
+            - name: MODEL
+              value: "Qwen/Qwen2-VL-2B-Instruct"
+            - name: MAX_MODEL_LEN
+              value: "8192"
+            - name: MAX_NUM_SEQS
+              value: "64"
+            - name: GPU_MEM_E
+              value: "0.15"
+            - name: GPU_MEM_P
+              value: "0.35"
+            - name: GPU_MEM_D
+              value: "0.35"
+            - name: EC_SHARED_STORAGE_PATH
+              value: "/dev/shm/ec_cache"
+            # Set PREFILL_URLS=disable to collapse to E + PD (fewer processes).
+            - name: PREFILL_URLS
+              value: "http://localhost:8002"
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
+                  optional: true
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+              memory: "24Gi"
+            requests:
+              cpu: "4"
+              memory: "16Gi"
+              nvidia.com/gpu: "1"
+          startupProbe:
+            # Model download + 3 engines loading can take many minutes.
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+            failureThreshold: 180 # up to 30 min
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 20
+            failureThreshold: 6
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: hf-cache
+              mountPath: /root/.cache/huggingface
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: config
+          configMap:
+            name: epd-scripts
+            defaultMode: 0755
+        - name: hf-cache
+          emptyDir: {} # swap for a PVC to cache model weights
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: epd-proxy
+  namespace: epd-disagg
+  labels:
+    app: epd-disagg
+spec:
+  selector:
+    app: epd-disagg
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP
