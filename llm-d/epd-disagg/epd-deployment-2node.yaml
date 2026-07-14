@@ -1,0 +1,500 @@
+# =============================================================================
+# Native vLLM EPD disaggregation across 2 NODES (2-GPU node + 1-GPU node)
+# Model : Qwen/Qwen2-VL-2B-Instruct (multimodal, vision-language)
+# Layout: full 3-way E / P / D, one engine per GPU, WITHOUT any shared storage.
+#
+#   Node A (2 GPUs): one Pod "epd-ep" with TWO containers ->
+#       - encode  container  (GPU, --mm-encoder-only, EC producer)
+#       - prefill container  (GPU, EC consumer, NIXL producer)
+#     They live in the SAME Pod, so they share the EC encoder cache through a
+#     plain in-Pod emptyDir -- NO hostPath, NO ReadWriteMany PVC, NO
+#     StorageClass. Requesting 2 GPUs forces this Pod onto the 2-GPU node.
+#
+#   Node B (1 GPU): Pod "epd-decode" (GPU, NIXL consumer). Its 1-GPU request
+#     lands on the 1-GPU node (the 2-GPU node is already full). Prefill -> Decode
+#     KV cache travels over the pod network via NixlConnector -- no storage.
+#
+# A GPU-less "epd-proxy" Pod exposes one OpenAI endpoint. Uses vLLM's *native*
+# Disaggregated Encoder + NixlConnector; no llm-d / coordinator.
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: epd-disagg
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hf-token
+  namespace: epd-disagg
+type: Opaque
+stringData:
+  token: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: epd-2node-scripts
+  namespace: epd-disagg
+data:
+  # ---------------------------------------------------------------------------
+  # Role launcher. ROLE=encode|prefill|decode|proxy. Each engine owns a whole
+  # GPU (the NVIDIA device plugin sets CUDA_VISIBLE_DEVICES per container).
+  # ---------------------------------------------------------------------------
+  start-role.sh: |
+    #!/bin/bash
+    set -uo pipefail
+
+    MODEL="${MODEL:-Qwen/Qwen2-VL-2B-Instruct}"
+    ROLE="${ROLE:?ROLE must be set to encode|prefill|decode|proxy}"
+    EC_PATH="${EC_SHARED_STORAGE_PATH:-/ec-cache}"
+    PORT="${PORT:-8000}"
+    MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
+    MAX_NUM_SEQS="${MAX_NUM_SEQS:-32}"
+
+    export VLLM_LOGGING_LEVEL="${VLLM_LOGGING_LEVEL:-INFO}"
+    export UCX_TLS="${UCX_TLS:-all}"
+    export UCX_NET_DEVICES="${UCX_NET_DEVICES:-all}"
+
+    EC_PRODUCER="{\"ec_connector\":\"ECExampleConnector\",\"ec_role\":\"ec_producer\",\"ec_connector_extra_config\":{\"shared_storage_path\":\"$EC_PATH\"}}"
+    EC_CONSUMER="{\"ec_connector\":\"ECExampleConnector\",\"ec_role\":\"ec_consumer\",\"ec_connector_extra_config\":{\"shared_storage_path\":\"$EC_PATH\"}}"
+
+    if [[ "$ROLE" != "proxy" ]]; then
+      # NIXL is required by NixlConnector (P->D KV transfer). Nightly images
+      # ship it; install as a fallback just in case.
+      python3 -c "import nixl" 2>/dev/null || pip install --no-cache-dir nixl || true
+    fi
+
+    case "$ROLE" in
+      encode)
+        # Vision encoder only: ~1.2GB weights, no KV cache, writes EC cache.
+        mkdir -p "$EC_PATH" 2>/dev/null || true
+        GPU_MEM_E="${GPU_MEM_E:-0.90}"
+        exec vllm serve "$MODEL" --port "$PORT" --trust-remote-code \
+          --gpu-memory-utilization "$GPU_MEM_E" \
+          --enforce-eager --enable-request-id-headers \
+          --no-enable-prefix-caching --mm-encoder-only \
+          --max-num-batched-tokens 16384 --max-num-seqs "$MAX_NUM_SEQS" \
+          --ec-transfer-config "$EC_PRODUCER"
+        ;;
+      prefill)
+        # Reads EC cache (consumer), produces KV, ships it to decode via NIXL.
+        mkdir -p "$EC_PATH" 2>/dev/null || true
+        GPU_MEM_P="${GPU_MEM_P:-0.90}"
+        export VLLM_NIXL_SIDE_CHANNEL_PORT="${VLLM_NIXL_SIDE_CHANNEL_PORT:-5559}"
+        exec vllm serve "$MODEL" --port "$PORT" --trust-remote-code \
+          --gpu-memory-utilization "$GPU_MEM_P" \
+          --enforce-eager --enable-request-id-headers \
+          --max-model-len "$MAX_MODEL_LEN" --max-num-seqs "$MAX_NUM_SEQS" \
+          --ec-transfer-config "$EC_CONSUMER" \
+          --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_producer"}'
+        ;;
+      decode)
+        # Pulls KV from prefill via NIXL, runs the autoregressive decode.
+        GPU_MEM_D="${GPU_MEM_D:-0.90}"
+        export VLLM_NIXL_SIDE_CHANNEL_PORT="${VLLM_NIXL_SIDE_CHANNEL_PORT:-5559}"
+        exec vllm serve "$MODEL" --port "$PORT" --trust-remote-code \
+          --gpu-memory-utilization "$GPU_MEM_D" \
+          --enforce-eager \
+          --max-model-len "$MAX_MODEL_LEN" --max-num-seqs "$MAX_NUM_SEQS" \
+          --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_consumer"}'
+        ;;
+      proxy)
+        exec python3 /config/disagg_epd_proxy.py \
+          --host 0.0.0.0 --port "$PORT" \
+          --encode-servers-urls  "${ENCODE_URL:-http://epd-encode:8000}" \
+          --prefill-servers-urls "${PREFILL_URL:-http://epd-prefill:8000}" \
+          --decode-servers-urls  "${DECODE_URL:-http://epd-decode:8000}"
+        ;;
+      *)
+        echo "[start-role] unknown ROLE=$ROLE" >&2
+        exit 1
+        ;;
+    esac
+  # ---------------------------------------------------------------------------
+  # OpenAI-compatible EPD proxy (compact port of vLLM's disagg_epd_proxy.py).
+  # ---------------------------------------------------------------------------
+  disagg_epd_proxy.py: |
+    #!/usr/bin/env python3
+    # Routes /v1/chat/completions across encode / prefill / decode engines.
+    import argparse, asyncio, logging, random, uuid
+    import aiohttp, uvicorn
+    from fastapi import FastAPI, HTTPException, Request
+    from fastapi.responses import JSONResponse, StreamingResponse
+
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s: %(message)s")
+    logger = logging.getLogger("epd-proxy")
+    app = FastAPI()
+    sess = {"encode": None, "prefill": None, "decode": None}
+    MM_TYPES = {"image_url", "audio_url", "input_audio", "video_url"}
+
+    def extract_mm_items(data):
+        items = []
+        for msg in data.get("messages", []):
+            content = msg.get("content")
+            if isinstance(content, list):
+                for item in content:
+                    if item.get("type") in MM_TYPES:
+                        items.append(item)
+        return items
+
+    async def run_encoders(data, e_urls, req_id):
+        mm = extract_mm_items(data)
+        if not mm:
+            return
+        logger.info("[%s] priming %d mm item(s) on encoder", req_id, len(mm))
+        tasks = []
+        for idx, item in enumerate(mm):
+            url = e_urls[idx % len(e_urls)]
+            child = f"{req_id}:{idx}:{uuid.uuid4().hex[:6]}"
+            payload = {"model": data.get("model"),
+                       "messages": [{"role": "user", "content": [item]}],
+                       "max_tokens": 1, "stream": False}
+            tasks.append(sess["encode"].post(f"{url}/v1/chat/completions",
+                                             json=payload,
+                                             headers={"x-request-id": child}))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, Exception):
+                raise HTTPException(502, f"encoder failed: {r}")
+            if r.status != 200:
+                raise HTTPException(r.status, f"encoder failed: {await r.text()}")
+            await r.release()
+
+    async def run_prefill(data, p_url, req_id):
+        if not p_url:
+            return data
+        pr = dict(data)
+        pr["kv_transfer_params"] = {"do_remote_decode": True,
+                                    "do_remote_prefill": False,
+                                    "remote_engine_id": None,
+                                    "remote_block_ids": None,
+                                    "remote_host": None, "remote_port": None}
+        pr["stream"] = False
+        pr["max_tokens"] = 1
+        pr.pop("max_completion_tokens", None)
+        pr.pop("stream_options", None)
+        async with sess["prefill"].post(f"{p_url}/v1/chat/completions", json=pr,
+                                        headers={"x-request-id": req_id}) as resp:
+            if resp.status != 200:
+                raise HTTPException(resp.status, f"prefill failed: {await resp.text()}")
+            body = await resp.json()
+        ktp = body.get("kv_transfer_params")
+        if ktp:
+            data["kv_transfer_params"] = ktp
+        return data
+
+    @app.post("/v1/chat/completions")
+    async def chat(request: Request):
+        data = await request.json()
+        req_id = request.headers.get("x-request-id", str(uuid.uuid4()))
+        e_urls = app.state.e_urls
+        p_url = random.choice(app.state.p_urls) if app.state.p_urls else None
+        d_url = random.choice(app.state.d_urls)
+        await run_encoders(data, e_urls, req_id)
+        data = await run_prefill(data, p_url, req_id)
+        headers = {"x-request-id": req_id}
+        if data.get("stream"):
+            async def gen():
+                async with sess["decode"].post(f"{d_url}/v1/chat/completions",
+                                               json=data, headers=headers) as resp:
+                    resp.raise_for_status()
+                    async for chunk in resp.content.iter_chunked(1024):
+                        if chunk:
+                            yield chunk.decode("utf-8", errors="ignore")
+            return StreamingResponse(gen(), media_type="text/event-stream")
+        async with sess["decode"].post(f"{d_url}/v1/chat/completions",
+                                       json=data, headers=headers) as resp:
+            if resp.status != 200:
+                raise HTTPException(resp.status, f"decode failed: {await resp.text()}")
+            return JSONResponse(await resp.json())
+
+    @app.get("/v1/models")
+    async def models():
+        async with sess["decode"].get(f"{app.state.d_urls[0]}/v1/models") as resp:
+            return JSONResponse(await resp.json())
+
+    @app.get("/health")
+    async def health():
+        return JSONResponse({"proxy": "healthy"})
+
+    @app.on_event("startup")
+    async def _start():
+        to = aiohttp.ClientTimeout(total=100000)
+        for k in sess:
+            sess[k] = aiohttp.ClientSession(timeout=to,
+                                            connector=aiohttp.TCPConnector(limit=0))
+
+    if __name__ == "__main__":
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--host", default="0.0.0.0")
+        ap.add_argument("--port", type=int, default=8000)
+        ap.add_argument("--encode-servers-urls", required=True)
+        ap.add_argument("--prefill-servers-urls", required=True)
+        ap.add_argument("--decode-servers-urls", required=True)
+        a = ap.parse_args()
+        app.state.e_urls = [u.strip() for u in a.encode_servers_urls.split(",") if u.strip()]
+        app.state.d_urls = [u.strip() for u in a.decode_servers_urls.split(",") if u.strip()]
+        if a.prefill_servers_urls.lower() in ("disable", "none", ""):
+            app.state.p_urls = []
+            logger.info("Prefill disabled -> running E + PD")
+        else:
+            app.state.p_urls = [u.strip() for u in a.prefill_servers_urls.split(",") if u.strip()]
+            logger.info("Running E + P + D")
+        uvicorn.run(app, host=a.host, port=a.port, log_level="info", loop="uvloop")
+---
+# ---------------- ENCODE + PREFILL: one Pod, 2 GPUs, 2-GPU node ---------------
+# Two containers share an in-Pod emptyDir for the EC cache. Requesting 2 GPUs
+# (1 per container) means only the 2-GPU node can host this Pod.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: epd-ep
+  namespace: epd-disagg
+  labels: { app: epd-ep, stack: epd-2node }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: epd-ep }
+  template:
+    metadata:
+      labels: { app: epd-ep, stack: epd-2node }
+    spec:
+      containers:
+        # ---- Encode (GPU) ----
+        - name: encode
+          image: vllm/vllm-openai:nightly
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/config/start-role.sh"]
+          env:
+            - { name: ROLE, value: "encode" }
+            - { name: PORT, value: "8001" }
+            - { name: MODEL, value: "Qwen/Qwen2-VL-2B-Instruct" }
+            - { name: MAX_MODEL_LEN, value: "8192" }
+            - { name: MAX_NUM_SEQS, value: "32" }
+            - { name: GPU_MEM_E, value: "0.90" }
+            - { name: EC_SHARED_STORAGE_PATH, value: "/ec-cache" }
+            - { name: HF_HUB_DISABLE_XET, value: "1" }
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef: { name: hf-token, key: token, optional: true }
+          ports:
+            - { name: http-e, containerPort: 8001 }
+          resources:
+            limits: { nvidia.com/gpu: "1" }
+            requests: { nvidia.com/gpu: "1" }
+          startupProbe:
+            httpGet: { path: /health, port: 8001 }
+            periodSeconds: 10
+            failureThreshold: 180
+          readinessProbe:
+            httpGet: { path: /health, port: 8001 }
+            periodSeconds: 10
+          volumeMounts:
+            - { name: config, mountPath: /config }
+            - { name: hf-cache, mountPath: /root/.cache/huggingface }
+            - { name: ec-cache, mountPath: /ec-cache }
+            - { name: dshm, mountPath: /dev/shm }
+        # ---- Prefill (GPU) ----
+        - name: prefill
+          image: vllm/vllm-openai:nightly
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/config/start-role.sh"]
+          env:
+            - { name: ROLE, value: "prefill" }
+            - { name: PORT, value: "8002" }
+            - { name: MODEL, value: "Qwen/Qwen2-VL-2B-Instruct" }
+            - { name: MAX_MODEL_LEN, value: "8192" }
+            - { name: MAX_NUM_SEQS, value: "32" }
+            - { name: GPU_MEM_P, value: "0.90" }
+            - { name: VLLM_NIXL_SIDE_CHANNEL_PORT, value: "5559" }
+            - { name: EC_SHARED_STORAGE_PATH, value: "/ec-cache" }
+            - { name: HF_HUB_DISABLE_XET, value: "1" }
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef: { name: hf-token, key: token, optional: true }
+          ports:
+            - { name: http-p, containerPort: 8002 }
+            - { name: nixl, containerPort: 5559 }
+          resources:
+            limits: { nvidia.com/gpu: "1" }
+            requests: { nvidia.com/gpu: "1" }
+          startupProbe:
+            httpGet: { path: /health, port: 8002 }
+            periodSeconds: 10
+            failureThreshold: 180
+          readinessProbe:
+            httpGet: { path: /health, port: 8002 }
+            periodSeconds: 10
+          volumeMounts:
+            - { name: config, mountPath: /config }
+            - { name: hf-cache, mountPath: /root/.cache/huggingface }
+            - { name: ec-cache, mountPath: /ec-cache }
+            - { name: dshm, mountPath: /dev/shm }
+      volumes:
+        - name: config
+          configMap: { name: epd-2node-scripts, defaultMode: 0755 }
+        - name: hf-cache
+          emptyDir: {}
+        # EC encoder cache shared between the encode + prefill containers of THIS
+        # Pod. In-Pod emptyDir -> no hostPath, no PVC, no StorageClass.
+        - name: ec-cache
+          emptyDir: {}
+        - name: dshm
+          emptyDir: { medium: Memory, sizeLimit: 4Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: epd-encode
+  namespace: epd-disagg
+spec:
+  selector: { app: epd-ep }
+  ports:
+    - { name: http, port: 8000, targetPort: 8001 }
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: epd-prefill
+  namespace: epd-disagg
+spec:
+  selector: { app: epd-ep }
+  ports:
+    - { name: http, port: 8000, targetPort: 8002 }
+    - { name: nixl, port: 5559, targetPort: 5559 }
+  type: ClusterIP
+---
+# ------------------- DECODE: own Pod, 1 GPU, the 1-GPU node -------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: epd-decode
+  namespace: epd-disagg
+  labels: { app: epd-decode, stack: epd-2node }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: epd-decode }
+  template:
+    metadata:
+      labels: { app: epd-decode, stack: epd-2node }
+    spec:
+      # The 2-GPU node is already full (both GPUs held by epd-ep), so this 1-GPU
+      # Pod lands on the 1-GPU node. The anti-affinity makes that explicit.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: { app: epd-ep }
+      containers:
+        - name: engine
+          image: vllm/vllm-openai:nightly
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/config/start-role.sh"]
+          env:
+            - { name: ROLE, value: "decode" }
+            - { name: MODEL, value: "Qwen/Qwen2-VL-2B-Instruct" }
+            - { name: MAX_MODEL_LEN, value: "8192" }
+            - { name: MAX_NUM_SEQS, value: "32" }
+            - { name: GPU_MEM_D, value: "0.90" }
+            - { name: VLLM_NIXL_SIDE_CHANNEL_PORT, value: "5559" }
+            - { name: HF_HUB_DISABLE_XET, value: "1" }
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef: { name: hf-token, key: token, optional: true }
+          ports:
+            - { name: http, containerPort: 8000 }
+            - { name: nixl, containerPort: 5559 }
+          resources:
+            limits: { nvidia.com/gpu: "1" }
+            requests: { nvidia.com/gpu: "1" }
+          startupProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 10
+            failureThreshold: 180
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 10
+          volumeMounts:
+            - { name: config, mountPath: /config }
+            - { name: hf-cache, mountPath: /root/.cache/huggingface }
+            - { name: dshm, mountPath: /dev/shm }
+      volumes:
+        - name: config
+          configMap: { name: epd-2node-scripts, defaultMode: 0755 }
+        - name: hf-cache
+          emptyDir: {}
+        - name: dshm
+          emptyDir: { medium: Memory, sizeLimit: 4Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: epd-decode
+  namespace: epd-disagg
+spec:
+  selector: { app: epd-decode }
+  ports:
+    - { name: http, port: 8000, targetPort: 8000 }
+    - { name: nixl, port: 5559, targetPort: 5559 }
+  type: ClusterIP
+---
+# -------------------------------- PROXY --------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: epd-proxy
+  namespace: epd-disagg
+  labels: { app: epd-proxy, stack: epd-2node }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: epd-proxy }
+  template:
+    metadata:
+      labels: { app: epd-proxy, stack: epd-2node }
+    spec:
+      containers:
+        - name: proxy
+          image: vllm/vllm-openai:nightly
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/config/start-role.sh"]
+          env:
+            - { name: ROLE, value: "proxy" }
+            - { name: ENCODE_URL, value: "http://epd-encode:8000" }
+            - { name: PREFILL_URL, value: "http://epd-prefill:8000" }
+            - { name: DECODE_URL, value: "http://epd-decode:8000" }
+          ports:
+            - { name: http, containerPort: 8000 }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 20
+            failureThreshold: 6
+          volumeMounts:
+            - { name: config, mountPath: /config }
+      volumes:
+        - name: config
+          configMap: { name: epd-2node-scripts, defaultMode: 0755 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: epd-proxy
+  namespace: epd-disagg
+  labels: { app: epd-proxy }
+spec:
+  selector: { app: epd-proxy }
+  ports:
+    - { name: http, port: 8000, targetPort: 8000 }
+  type: ClusterIP

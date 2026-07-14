@@ -48,13 +48,13 @@ data:
     DECODE_PORT=8003
     PROXY_PORT=8000
 
-    # Memory split across the single 20GB GPU (fractions of total device mem).
-    # Encoder uses --mm-encoder-only (vision tower only) so it needs little.
-    GPU_MEM_E="${GPU_MEM_E:-0.15}"
-    GPU_MEM_P="${GPU_MEM_P:-0.35}"
-    GPU_MEM_D="${GPU_MEM_D:-0.35}"
-    MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
-    MAX_NUM_SEQS="${MAX_NUM_SEQS:-64}"
+    # DISAGG_MODE: "1e1pd"  = Encode + combined Prefill/Decode (2 engines, no
+    #              NIXL) -- fits comfortably on a 20GB GPU, recommended default.
+    #              "1e1p1d" = full Encode + Prefill + Decode (3 engines, NIXL
+    #              P->D) -- very tight on 20GB, keep max-model-len small.
+    DISAGG_MODE="${DISAGG_MODE:-1e1pd}"
+    MAX_MODEL_LEN="${MAX_MODEL_LEN:-4096}"
+    MAX_NUM_SEQS="${MAX_NUM_SEQS:-16}"
 
     export CUDA_VISIBLE_DEVICES=0
     export UCX_TLS=all
@@ -66,7 +66,7 @@ data:
 
     # NIXL is required by NixlConnector (P->D KV transfer). Nightly images ship
     # it; install as a fallback just in case.
-    python -c "import nixl" 2>/dev/null || pip install --no-cache-dir nixl || true
+    python3 -c "import nixl" 2>/dev/null || pip install --no-cache-dir nixl || true
 
     declare -a PIDS=()
     cleanup() {
@@ -86,47 +86,71 @@ data:
     EC_PRODUCER="{\"ec_connector\":\"ECExampleConnector\",\"ec_role\":\"ec_producer\",\"ec_connector_extra_config\":{\"shared_storage_path\":\"$EC_PATH\"}}"
     EC_CONSUMER="{\"ec_connector\":\"ECExampleConnector\",\"ec_role\":\"ec_consumer\",\"ec_connector_extra_config\":{\"shared_storage_path\":\"$EC_PATH\"}}"
 
-    # ----- Encode engine (vision encoder only) --------------------------------
+    # ----- Encode engine (vision encoder only; loads ~1.2GB, no KV cache) ------
+    GPU_MEM_E="${GPU_MEM_E:-0.20}"
     vllm serve "$MODEL" --port "$ENCODE_PORT" --trust-remote-code \
       --gpu-memory-utilization "$GPU_MEM_E" \
       --enforce-eager --enable-request-id-headers \
       --no-enable-prefix-caching --mm-encoder-only \
-      --max-num-batched-tokens 32768 --max-num-seqs "$MAX_NUM_SEQS" \
+      --max-num-batched-tokens 16384 --max-num-seqs "$MAX_NUM_SEQS" \
       --ec-transfer-config "$EC_PRODUCER" &
     PIDS+=($!)
 
-    # ----- Prefill engine (consumes EC, produces KV) --------------------------
-    VLLM_NIXL_SIDE_CHANNEL_PORT=5559 \
-    vllm serve "$MODEL" --port "$PREFILL_PORT" --trust-remote-code \
-      --gpu-memory-utilization "$GPU_MEM_P" \
-      --enforce-eager --enable-request-id-headers \
-      --max-model-len "$MAX_MODEL_LEN" --max-num-seqs "$MAX_NUM_SEQS" \
-      --ec-transfer-config "$EC_CONSUMER" \
-      --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_producer"}' &
-    PIDS+=($!)
+    if [[ "$DISAGG_MODE" == "1e1p1d" ]]; then
+      # --- full EPD: separate Prefill (NIXL producer) + Decode (NIXL consumer) -
+      # Each engine loads the full 4.26GB model, so KV cache room is tiny on
+      # 20GB. If you still hit "No available memory for the cache blocks",
+      # lower MAX_MODEL_LEN / MAX_NUM_SEQS or raise GPU_MEM_P / GPU_MEM_D.
+      GPU_MEM_P="${GPU_MEM_P:-0.38}"
+      GPU_MEM_D="${GPU_MEM_D:-0.38}"
 
-    # ----- Decode engine (consumes KV) ----------------------------------------
-    VLLM_NIXL_SIDE_CHANNEL_PORT=6000 \
-    vllm serve "$MODEL" --port "$DECODE_PORT" --trust-remote-code \
-      --gpu-memory-utilization "$GPU_MEM_D" \
-      --enforce-eager \
-      --max-model-len "$MAX_MODEL_LEN" --max-num-seqs "$MAX_NUM_SEQS" \
-      --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_consumer"}' &
-    PIDS+=($!)
+      VLLM_NIXL_SIDE_CHANNEL_PORT=5559 \
+      vllm serve "$MODEL" --port "$PREFILL_PORT" --trust-remote-code \
+        --gpu-memory-utilization "$GPU_MEM_P" \
+        --enforce-eager --enable-request-id-headers \
+        --max-model-len "$MAX_MODEL_LEN" --max-num-seqs "$MAX_NUM_SEQS" \
+        --ec-transfer-config "$EC_CONSUMER" \
+        --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_producer"}' &
+      PIDS+=($!)
 
-    wait_for "$ENCODE_PORT"  "encode"
-    wait_for "$PREFILL_PORT" "prefill"
-    wait_for "$DECODE_PORT"  "decode"
-    echo "[start-epd] all engines ready -> starting proxy on :$PROXY_PORT"
+      VLLM_NIXL_SIDE_CHANNEL_PORT=6000 \
+      vllm serve "$MODEL" --port "$DECODE_PORT" --trust-remote-code \
+        --gpu-memory-utilization "$GPU_MEM_D" \
+        --enforce-eager \
+        --max-model-len "$MAX_MODEL_LEN" --max-num-seqs "$MAX_NUM_SEQS" \
+        --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_consumer"}' &
+      PIDS+=($!)
 
-    # PREFILL_URLS=disable collapses to E + PD (encoder + combined prefill/decode)
-    PREFILL_URLS="${PREFILL_URLS:-http://localhost:$PREFILL_PORT}"
+      wait_for "$ENCODE_PORT"  "encode"
+      wait_for "$PREFILL_PORT" "prefill"
+      wait_for "$DECODE_PORT"  "decode"
+      PREFILL_ARG="http://localhost:$PREFILL_PORT"
+      DECODE_ARG="http://localhost:$DECODE_PORT"
+    else
+      # --- E + PD: one combined Prefill+Decode engine (no NIXL) ----------------
+      # This is vLLM's 1e1pd config: encoder cache is still disaggregated, but
+      # prefill+decode share one engine so there is plenty of KV cache room.
+      GPU_MEM_PD="${GPU_MEM_PD:-0.75}"
 
-    exec python /config/disagg_epd_proxy.py \
+      vllm serve "$MODEL" --port "$DECODE_PORT" --trust-remote-code \
+        --gpu-memory-utilization "$GPU_MEM_PD" \
+        --enforce-eager --enable-request-id-headers \
+        --max-model-len "$MAX_MODEL_LEN" --max-num-seqs "$MAX_NUM_SEQS" \
+        --ec-transfer-config "$EC_CONSUMER" &
+      PIDS+=($!)
+
+      wait_for "$ENCODE_PORT" "encode"
+      wait_for "$DECODE_PORT" "prefill+decode"
+      PREFILL_ARG="disable"
+      DECODE_ARG="http://localhost:$DECODE_PORT"
+    fi
+
+    echo "[start-epd] engines ready -> starting proxy on :$PROXY_PORT"
+    exec python3 /config/disagg_epd_proxy.py \
       --host 0.0.0.0 --port "$PROXY_PORT" \
       --encode-servers-urls  "http://localhost:$ENCODE_PORT" \
-      --prefill-servers-urls "$PREFILL_URLS" \
-      --decode-servers-urls  "http://localhost:$DECODE_PORT"
+      --prefill-servers-urls "$PREFILL_ARG" \
+      --decode-servers-urls  "$DECODE_ARG"
 
   # ---------------------------------------------------------------------------
   # OpenAI-compatible EPD proxy (compact port of vLLM's disagg_epd_proxy.py).
@@ -270,6 +294,10 @@ metadata:
     app: epd-disagg
 spec:
   replicas: 1
+  # Single GPU can only be held by one Pod. Recreate avoids the RollingUpdate
+  # deadlock where a new (surge) Pod stays Pending waiting for the GPU.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: epd-disagg
@@ -288,21 +316,31 @@ spec:
           env:
             - name: MODEL
               value: "Qwen/Qwen2-VL-2B-Instruct"
+            - name: DISAGG_MODE
+              # "1e1pd"  = Encode + combined Prefill/Decode (2 engines, robust on
+              #            a 20GB GPU). Recommended default.
+              # "1e1p1d" = full 3-way EPD (tight on 20GB; uses GPU_MEM_P/D below).
+              value: "1e1pd"
             - name: MAX_MODEL_LEN
-              value: "8192"
+              value: "4096"
             - name: MAX_NUM_SEQS
-              value: "64"
+              value: "16"
             - name: GPU_MEM_E
-              value: "0.15"
+              value: "0.20"
+            - name: GPU_MEM_PD
+              value: "0.75"
+            # Only used when DISAGG_MODE=1e1p1d:
             - name: GPU_MEM_P
-              value: "0.35"
+              value: "0.38"
             - name: GPU_MEM_D
-              value: "0.35"
+              value: "0.38"
             - name: EC_SHARED_STORAGE_PATH
               value: "/dev/shm/ec_cache"
-            # Set PREFILL_URLS=disable to collapse to E + PD (fewer processes).
-            - name: PREFILL_URLS
-              value: "http://localhost:8002"
+            # Disable HF Xet CAS backend: it intermittently returns 401 from
+            # cas-server.xethub.hf.co and aborts the weight download. Falling
+            # back to plain HTTPS downloads is reliable for this model.
+            - name: HF_HUB_DISABLE_XET
+              value: "1"
             - name: HUGGING_FACE_HUB_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -315,10 +353,7 @@ spec:
           resources:
             limits:
               nvidia.com/gpu: "1"
-              memory: "24Gi"
             requests:
-              cpu: "4"
-              memory: "16Gi"
               nvidia.com/gpu: "1"
           startupProbe:
             # Model download + 3 engines loading can take many minutes.
