@@ -22,6 +22,18 @@ kind: Namespace
 metadata:
   name: epd-disagg
 ---
+# epd-ep needs 2 GPUs on ONE node, so it can only fit the 2-GPU node. Give it a
+# higher scheduling priority than decode so it is placed (and, if needed,
+# preempts decode) FIRST -- otherwise decode may grab a GPU on the 2-GPU node
+# and leave epd-ep unschedulable (Pending, "Insufficient nvidia.com/gpu").
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: epd-ep-priority
+value: 1000000
+globalDefault: false
+description: "Schedule the 2-GPU encode+prefill Pod before the 1-GPU decode Pod."
+---
 apiVersion: v1
 kind: Secret
 metadata:
@@ -87,7 +99,7 @@ data:
           --enforce-eager --enable-request-id-headers \
           --max-model-len "$MAX_MODEL_LEN" --max-num-seqs "$MAX_NUM_SEQS" \
           --ec-transfer-config "$EC_CONSUMER" \
-          --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_producer"}'
+          --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_producer","kv_connector_extra_config":{"enforce_handshake_compat":false}}'
         ;;
       decode)
         # Pulls KV from prefill via NIXL, runs the autoregressive decode.
@@ -97,7 +109,7 @@ data:
           --gpu-memory-utilization "$GPU_MEM_D" \
           --enforce-eager \
           --max-model-len "$MAX_MODEL_LEN" --max-num-seqs "$MAX_NUM_SEQS" \
-          --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_consumer"}'
+          --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_consumer","kv_connector_extra_config":{"enforce_handshake_compat":false}}'
         ;;
       proxy)
         exec python3 /config/disagg_epd_proxy.py \
@@ -262,6 +274,9 @@ spec:
     metadata:
       labels: { app: epd-ep, stack: epd-2node }
     spec:
+      # Higher priority so this 2-GPU Pod is scheduled before (and can preempt)
+      # the 1-GPU decode Pod, guaranteeing it lands on the 2-GPU node.
+      priorityClassName: epd-ep-priority
       containers:
         # ---- Encode (GPU) ----
         - name: encode
@@ -310,6 +325,12 @@ spec:
             - { name: MAX_NUM_SEQS, value: "32" }
             - { name: GPU_MEM_P, value: "0.90" }
             - { name: VLLM_NIXL_SIDE_CHANNEL_PORT, value: "5559" }
+            # Advertise this Pod's routable IP for the NIXL side channel. The
+            # default is "localhost", which makes decode connect to ITSELF and
+            # fail with "engine ID mismatch" across Pods/nodes.
+            - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
             - { name: EC_SHARED_STORAGE_PATH, value: "/ec-cache" }
             - { name: HF_HUB_DISABLE_XET, value: "1" }
             - name: HUGGING_FACE_HUB_TOKEN
@@ -406,6 +427,11 @@ spec:
             - { name: MAX_NUM_SEQS, value: "32" }
             - { name: GPU_MEM_D, value: "0.90" }
             - { name: VLLM_NIXL_SIDE_CHANNEL_PORT, value: "5559" }
+            # Advertise this Pod's routable IP for the NIXL side channel (see
+            # the prefill container for why localhost is wrong across Pods).
+            - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
             - { name: HF_HUB_DISABLE_XET, value: "1" }
             - name: HUGGING_FACE_HUB_TOKEN
               valueFrom:
