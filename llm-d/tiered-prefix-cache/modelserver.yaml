@@ -1,0 +1,15 @@
+apiVersion: networking.serving.volcano.sh/v1alpha1
+kind: ModelServer
+metadata:
+  name: vllm-qwen-offloading
+  namespace: vllm-offloading
+spec:
+  workloadSelector:
+    matchLabels:
+      app: vllm-qwen-offloading
+  workloadPort:
+    port: 8000
+  model: "Qwen/Qwen3-0.6B"
+  inferenceEngine: "vLLM"
+  trafficPolicy:
+    timeout: 10s

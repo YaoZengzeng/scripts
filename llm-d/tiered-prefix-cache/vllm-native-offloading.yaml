@@ -25,6 +25,30 @@ kind: Namespace
 metadata:
   name: vllm-offloading
 ---
+# Silences noisy uvicorn access-log lines for polling endpoints
+# (readiness/liveness probes -> /health, Prometheus scrape -> /metrics,
+# and client model discovery -> /v1/models) while keeping the useful
+# POST /v1/chat/completions logs. Python auto-imports `sitecustomize` at
+# interpreter startup when its directory is on PYTHONPATH, so this attaches
+# a logging filter to the `uvicorn.access` logger before the server starts.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vllm-log-filter
+  namespace: vllm-offloading
+data:
+  sitecustomize.py: |
+    import logging
+
+    class _EndpointFilter(logging.Filter):
+        _SILENCED = ("/metrics", "/v1/models", "/health")
+
+        def filter(self, record):
+            msg = record.getMessage()
+            return not any(path in msg for path in self._SILENCED)
+
+    logging.getLogger("uvicorn.access").addFilter(_EndpointFilter())
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -34,6 +58,12 @@ metadata:
     app: vllm-qwen-offloading
 spec:
   replicas: 1
+  # Recreate: terminate the old Pod before starting the new one. The Pod
+  # requests an exclusive GPU (nvidia.com/gpu: 1), so on a single-GPU node the
+  # default RollingUpdate strategy leaves the new Pod stuck in Pending waiting
+  # for a GPU the old Pod still holds. Recreate avoids that deadlock.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: vllm-qwen-offloading
@@ -57,33 +87,53 @@ spec:
                 --port 8000 \
                 --served-model-name Qwen/Qwen3-0.6B \
                 --gpu-memory-utilization 0.90 \
-                --max-model-len 8192 \
+                --max-model-len 32768 \
                 --enable-prefix-caching \
-                --num-gpu-blocks-override 512 \
-                --kv-transfer-config '{"kv_connector":"OffloadingConnector","kv_role":"kv_both","kv_connector_extra_config":{"cpu_bytes_to_use":4294967296}}'
+                --kv-transfer-config '{"kv_connector":"OffloadingConnector","kv_role":"kv_both","kv_connector_extra_config":{"cpu_bytes_to_use":25769803776}}'
+              # To make CPU offloading observable on this tiny model you can force
+              # GPU KV-cache eviction by re-enabling the flag below: append it (with a
+              # trailing "\") to the `vllm serve` command above.
+              #   --num-gpu-blocks-override 2048
               # Notes:
-              #   --max-model-len 8192           Must be <= the token capacity implied by
-              #                                  --num-gpu-blocks-override (512 * 16 = 8192).
-              #                                  vLLM v0.24+ hard-fails at startup if the GPU KV
-              #                                  cache cannot hold a single max-len request, so
-              #                                  this MUST match the block override below.
+              #   --max-model-len 32768          Context window per request. With the GPU-block
+              #                                  override DISABLED, vLLM auto-sizes the GPU KV
+              #                                  cache from free VRAM (~9443 blocks * 16 = ~151K
+              #                                  tokens on this card), which comfortably holds a
+              #                                  full 32K-token request, so multi-turn benchmarks
+              #                                  no longer overflow the window and get rejected
+              #                                  with HTTP 400 "maximum context length ...".
               #   --enable-prefix-caching        Offloading depends on prefix caching (on by
               #                                  default in V1; declared explicitly here).
-              #   --num-gpu-blocks-override 512  Deliberately shrink the GPU KV block count to a
-              #                                  small value (512*16 ~= 8K tokens). A 0.6B model on
-              #                                  a 20GB card has a huge GPU KV cache, so eviction
-              #                                  almost never happens and offloading is not
-              #                                  observable. Shrinking it lets a few slightly
-              #                                  longer / distinct-prefix requests trigger eviction
-              #                                  -> spill to CPU. Remove this line (and raise
-              #                                  --max-model-len) in production.
-              #   cpu_bytes_to_use=4294967296    CPU RAM offload capacity = 4GiB (the guide's
-              #                                  default is 100GB; scaled down for a single node).
+              #   --num-gpu-blocks-override 2048 (COMMENTED OUT) Deliberately shrinks the GPU KV
+              #                                  block count to a small value (2048*16 = 32K
+              #                                  tokens). A 0.6B model on a 20GB card has a huge
+              #                                  GPU KV cache, so eviction almost never happens and
+              #                                  offloading is not observable. Shrinking it lets a
+              #                                  few slightly longer / distinct-prefix requests
+              #                                  trigger eviction -> spill to CPU. Disabled here so
+              #                                  the GPU uses its full natural cache: local prefix
+              #                                  cache hit rate stays high and throughput is better,
+              #                                  at the cost of rarely exercising CPU offload.
+              #                                  IMPORTANT: if you re-enable this, --max-model-len
+              #                                  must be <= override * 16, or vLLM hard-fails at
+              #                                  startup (32768 already matches 2048 * 16).
+              #   cpu_bytes_to_use=25769803776   CPU RAM offload capacity = 24GiB. Sized to fit
+              #                                  inside the 48Gi container limit together with the
+              #                                  8Gi /dev/shm tmpfs (which ALSO counts against
+              #                                  limits.memory) and ~6Gi model/runtime overhead:
+              #                                  24 + 8 + 6 ~= 38Gi < 48Gi. Setting this to 40GiB
+              #                                  overflowed the limit and the pod was OOMKilled
+              #                                  right at "Allocating CPU tensors". Do NOT set this
+              #                                  to the full node RAM.
           env:
             - name: HF_HOME
               value: /model-cache
             - name: VLLM_LOGGING_LEVEL
               value: INFO
+            # Prepend the ConfigMap dir so Python auto-loads sitecustomize.py,
+            # which installs the uvicorn.access log filter (see ConfigMap above).
+            - name: PYTHONPATH
+              value: /opt/log-filter
           ports:
             - containerPort: 8000
               name: http
@@ -91,8 +141,8 @@ spec:
           resources:
             limits:
               cpu: "4"
-              # Must be > cpu_bytes_to_use (4Gi) + model/runtime overhead
-              memory: 16Gi
+              # Must be > cpu_bytes_to_use (24Gi) + /dev/shm tmpfs (8Gi) + model/runtime overhead
+              memory: 48Gi
               nvidia.com/gpu: "1"
             requests:
               cpu: "2"
@@ -122,6 +172,9 @@ spec:
               mountPath: /dev/shm
             - name: model-cache
               mountPath: /model-cache
+            - name: log-filter
+              mountPath: /opt/log-filter
+              readOnly: true
       volumes:
         - name: shm
           emptyDir:
@@ -130,6 +183,9 @@ spec:
         - name: model-cache
           emptyDir:
             sizeLimit: 10Gi
+        - name: log-filter
+          configMap:
+            name: vllm-log-filter
 ---
 apiVersion: v1
 kind: Service

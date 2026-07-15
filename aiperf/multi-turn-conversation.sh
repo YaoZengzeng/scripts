@@ -8,7 +8,7 @@ set -euo pipefail
 ###############################################################################
 MODEL="${MODEL:-Qwen/Qwen3-0.6B}"
 TOKENIZER="${TOKENIZER:-}"            # defaults to MODEL if empty
-URL="${URL:-172.236.135.13:80}"
+URL="${URL:-172.236.134.222:80}"
 ENDPOINT_TYPE="${ENDPOINT_TYPE:-chat}"
 STREAMING="${STREAMING:-true}"
 UI="${UI:-dashboard}"
@@ -38,7 +38,7 @@ REQUEST_RATE_MODE="${REQUEST_RATE_MODE:-}" # empty = not set (e.g. poisson)
 NUM_DATASET_ENTRIES="${NUM_DATASET_ENTRIES:-}" # empty = not set
 
 # Retry control (optional)
-MAX_RETRIES="${MAX_RETRIES:-10}"          # empty = not set
+MAX_RETRIES="${MAX_RETRIES:-0}"          # empty = not set
 RETRY_DELAY="${RETRY_DELAY:-1}"          # empty = not set (seconds)
 RETRY_MAX_DELAY="${RETRY_MAX_DELAY:-10}"  # empty = not set (seconds)
 
@@ -50,17 +50,9 @@ ARTIFACT_DIR="${ARTIFACT_DIR:-artifacts}"
 ###############################################################################
 usage() {
     cat <<EOF
-Usage: $0 <command> [options]
+Usage: $0 [options]
 
-Commands:
-  basic              Fixed-length conversations (default parameters)
-  variable           Variable-length conversations (turn stddev > 0)
-  realistic          Realistic user behavior with turn delays
-  high-concurrency   High-concurrency multi-turn sessions
-  rate-controlled    Request rate controlled conversations
-  support            Customer support chatbot simulation
-  context-stress     Context window stress test with long conversations
-  burst              Burst traffic simulation
+Runs a fixed-length multi-turn conversation benchmark.
 
 Environment variables (override defaults):
   MODEL                Model name                          (default: Qwen/Qwen3-0.6B)
@@ -95,12 +87,11 @@ Environment variables (override defaults):
   ARTIFACT_DIR         Output directory                    (default: artifacts)
 
 Examples:
-  $0 basic
-  MODEL=meta-llama/Llama-3-8B URL=gpu-server:8000 CONVERSATION_NUM=20 $0 variable
-  CONCURRENCY=10 CONVERSATION_NUM=50 $0 support
-  TURN_MEAN=5 TURN_STDDEV=2 CONVERSATION_NUM=20 $0 variable
+  $0
+  MODEL=meta-llama/Llama-3-8B URL=gpu-server:8000 CONVERSATION_NUM=20 $0
+  CONCURRENCY=10 CONVERSATION_NUM=50 $0
 EOF
-    exit 1
+    exit 0
 }
 
 build_common_args() {
@@ -167,9 +158,12 @@ build_rate_args() {
 
 build_retry_args() {
     local args=()
-    [[ -n "$MAX_RETRIES" ]] && args+=(--max-retries "$MAX_RETRIES")
-    [[ -n "$RETRY_DELAY" ]] && args+=(--retry-delay "$RETRY_DELAY")
-    [[ -n "$RETRY_MAX_DELAY" ]] && args+=(--retry-max-delay "$RETRY_MAX_DELAY")
+    # When MAX_RETRIES is unset or 0, disable retries entirely (no retry flags).
+    if [[ -n "$MAX_RETRIES" && "$MAX_RETRIES" != "0" ]]; then
+        args+=(--max-retries "$MAX_RETRIES")
+        [[ -n "$RETRY_DELAY" ]] && args+=(--retry-delay "$RETRY_DELAY")
+        [[ -n "$RETRY_MAX_DELAY" ]] && args+=(--retry-max-delay "$RETRY_MAX_DELAY")
+    fi
     echo "${args[@]}"
 }
 
@@ -204,7 +198,7 @@ run_profile() {
     echo "Output tokens:  mean=$output_mean  stddev=${output_stddev:-n/a}"
     echo "Concurrency:    $concurrency"
     [[ -n "$REQUEST_RATE" ]] && echo "Request rate:   $REQUEST_RATE (mode: ${REQUEST_RATE_MODE:-default})"
-    [[ -n "$MAX_RETRIES" ]] && echo "Retries:        max=$MAX_RETRIES  delay=${RETRY_DELAY:-n/a}s  max-delay=${RETRY_MAX_DELAY:-n/a}s"
+    [[ -n "$MAX_RETRIES" && "$MAX_RETRIES" != "0" ]] && echo "Retries:        max=$MAX_RETRIES  delay=${RETRY_DELAY:-n/a}s  max-delay=${RETRY_MAX_DELAY:-n/a}s"
     echo "================================================="
 
     # shellcheck disable=SC2086
@@ -212,88 +206,14 @@ run_profile() {
 }
 
 ###############################################################################
-# Commands
-###############################################################################
-cmd_basic() {
-    echo "--- Scenario: Fixed-Length Conversations ---"
-    run_profile "$CONVERSATION_NUM" "${TURN_MEAN:-3}" "0" \
-                "0" "0" "$CONCURRENCY" \
-                "$INPUT_TOKENS_MEAN" "$OUTPUT_TOKENS_MEAN" \
-                "$INPUT_TOKENS_STDDEV" "$OUTPUT_TOKENS_STDDEV"
-}
-
-cmd_variable() {
-    echo "--- Scenario: Variable-Length Conversations ---"
-    run_profile "${CONVERSATION_NUM:-20}" "${TURN_MEAN:-5}" "${TURN_STDDEV:-2}" \
-                "0" "0" "${CONCURRENCY:-4}" \
-                "${INPUT_TOKENS_MEAN:-150}" "${OUTPUT_TOKENS_MEAN:-100}" \
-                "$INPUT_TOKENS_STDDEV" "$OUTPUT_TOKENS_STDDEV"
-}
-
-cmd_realistic() {
-    echo "--- Scenario: Realistic User Behavior with Turn Delays ---"
-    run_profile "${CONVERSATION_NUM:-15}" "${TURN_MEAN:-4}" "${TURN_STDDEV:-1}" \
-                "${TURN_DELAY_MEAN:-2000}" "${TURN_DELAY_STDDEV:-500}" "${CONCURRENCY:-3}" \
-                "${INPUT_TOKENS_MEAN:-180}" "${OUTPUT_TOKENS_MEAN:-120}" \
-                "$INPUT_TOKENS_STDDEV" "$OUTPUT_TOKENS_STDDEV"
-}
-
-cmd_high_concurrency() {
-    echo "--- Scenario: High-Concurrency Multi-Turn Sessions ---"
-    run_profile "${CONVERSATION_NUM:-100}" "${TURN_MEAN:-6}" "${TURN_STDDEV:-2}" \
-                "0" "0" "${CONCURRENCY:-50}" \
-                "${INPUT_TOKENS_MEAN:-250}" "${OUTPUT_TOKENS_MEAN:-200}" \
-                "$INPUT_TOKENS_STDDEV" "$OUTPUT_TOKENS_STDDEV"
-}
-
-cmd_rate_controlled() {
-    echo "--- Scenario: Request Rate Controlled Conversations ---"
-    REQUEST_RATE="${REQUEST_RATE:-5}"
-    REQUEST_RATE_MODE="${REQUEST_RATE_MODE:-poisson}"
-    run_profile "${CONVERSATION_NUM:-30}" "${TURN_MEAN:-4}" "${TURN_STDDEV:-0}" \
-                "0" "0" "$CONCURRENCY" \
-                "${INPUT_TOKENS_MEAN:-200}" "${OUTPUT_TOKENS_MEAN:-150}" \
-                "$INPUT_TOKENS_STDDEV" "$OUTPUT_TOKENS_STDDEV"
-}
-
-cmd_support() {
-    echo "--- Scenario: Customer Support Chatbot Simulation ---"
-    run_profile "${CONVERSATION_NUM:-50}" "${TURN_MEAN:-7}" "${TURN_STDDEV:-2}" \
-                "${TURN_DELAY_MEAN:-3000}" "${TURN_DELAY_STDDEV:-1000}" "${CONCURRENCY:-10}" \
-                "${INPUT_TOKENS_MEAN:-150}" "${OUTPUT_TOKENS_MEAN:-200}" \
-                "${INPUT_TOKENS_STDDEV:-50}" "${OUTPUT_TOKENS_STDDEV:-80}"
-}
-
-cmd_context_stress() {
-    echo "--- Scenario: Context Window Stress Test ---"
-    run_profile "${CONVERSATION_NUM:-10}" "${TURN_MEAN:-15}" "${TURN_STDDEV:-3}" \
-                "0" "0" "${CONCURRENCY:-2}" \
-                "${INPUT_TOKENS_MEAN:-300}" "${OUTPUT_TOKENS_MEAN:-250}" \
-                "$INPUT_TOKENS_STDDEV" "$OUTPUT_TOKENS_STDDEV"
-}
-
-cmd_burst() {
-    echo "--- Scenario: Burst Traffic Simulation ---"
-    run_profile "${CONVERSATION_NUM:-100}" "${TURN_MEAN:-3}" "${TURN_STDDEV:-0}" \
-                "0" "0" "${CONCURRENCY:-50}" \
-                "${INPUT_TOKENS_MEAN:-180}" "${OUTPUT_TOKENS_MEAN:-120}" \
-                "$INPUT_TOKENS_STDDEV" "$OUTPUT_TOKENS_STDDEV"
-}
-
-###############################################################################
 # Main
 ###############################################################################
-[[ $# -lt 1 ]] && usage
-
-case "$1" in
-    basic)            cmd_basic ;;
-    variable)         cmd_variable ;;
-    realistic)        cmd_realistic ;;
-    high-concurrency) cmd_high_concurrency ;;
-    rate-controlled)  cmd_rate_controlled ;;
-    support)          cmd_support ;;
-    context-stress)   cmd_context_stress ;;
-    burst)            cmd_burst ;;
+case "${1:-}" in
     -h|--help|help)   usage ;;
-    *)                echo "Unknown command: $1"; usage ;;
 esac
+
+echo "--- Scenario: Fixed-Length Conversations ---"
+run_profile "$CONVERSATION_NUM" "${TURN_MEAN:-3}" "0" \
+            "0" "0" "$CONCURRENCY" \
+            "$INPUT_TOKENS_MEAN" "$OUTPUT_TOKENS_MEAN" \
+            "$INPUT_TOKENS_STDDEV" "$OUTPUT_TOKENS_STDDEV"
