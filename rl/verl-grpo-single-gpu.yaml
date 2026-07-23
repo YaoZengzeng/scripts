@@ -7,7 +7,8 @@
 #
 # Notes:
 #   - GRPO is used instead of PPO so no separate Critic model is loaded (saves memory).
-#   - Requires a node with 1 GPU and internet access (to pull the model & dataset).
+#   - Requires a node with 1 GPU (~20GB) and >=32Gi host RAM, plus internet access
+#     (to pull the model & dataset).
 #   - Set HF_TOKEN below only if you use gated models.
 apiVersion: batch/v1
 kind: Job
@@ -23,12 +24,17 @@ spec:
       restartPolicy: Never
       containers:
         - name: verl
-          image: verlai/verl:base-verl0.5-cu126-cudnn9.8-torch2.7.0-fa2.7.4
+          image: verlai/verl:app-verl0.5-vllm0.9.1-mcore0.12.2-te2.2
           imagePullPolicy: IfNotPresent
-          # Give shared memory for dataloader / NCCL; small models still benefit.
+          # Assumes a node with >=32Gi RAM. Reserve enough host memory for the
+          # rollout/actor workers; the 0.5B model + optimizer stay on the 20GB GPU.
           resources:
+            requests:
+              cpu: "3"
+              memory: 24Gi
             limits:
               nvidia.com/gpu: 1
+              memory: 28Gi
           env:
             - name: PYTHONUNBUFFERED
               value: "1"
@@ -42,15 +48,17 @@ spec:
             - |
               set -euo pipefail
 
-              # 1. Get verl source (image ships deps; we clone for the latest examples).
-              git clone --depth 1 https://github.com/verl-project/verl.git /workspace/verl
+              # 1. Get verl source. Pin to the release tag that matches the image
+              #    (app-verl0.5, which bundles vLLM) so we don't pull in newer
+              #    main-branch deps such as `transfer_queue` that aren't installed here.
+              git clone --depth 1 --branch v0.5.0 https://github.com/verl-project/verl.git /workspace/verl
               cd /workspace/verl
               pip install --no-deps -e .
 
               # 2. Prepare the GSM8K dataset.
-              python3 examples/data_preprocess/gsm8k.py --local_save_dir /workspace/data/gsm8k
+              python3 examples/data_preprocess/gsm8k.py --local_dir /workspace/data/gsm8k
 
-              # 3. Run GRPO training on a single GPU (memory-optimized for ~20GB).
+              # 3. Run GRPO training on a single GPU (fits ~20GB GPUs).
               python3 -m verl.trainer.main_ppo \
                 algorithm.adv_estimator=grpo \
                 data.train_files=/workspace/data/gsm8k/train.parquet \
@@ -65,8 +73,8 @@ spec:
                 actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
                 actor_rollout_ref.actor.use_kl_loss=True \
                 actor_rollout_ref.actor.kl_loss_coef=0.001 \
-                actor_rollout_ref.actor.fsdp_config.param_offload=True \
-                actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
+                actor_rollout_ref.actor.fsdp_config.param_offload=False \
+                actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
                 actor_rollout_ref.rollout.name=vllm \
                 actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
                 actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
