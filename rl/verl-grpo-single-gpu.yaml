@@ -1,6 +1,10 @@
 # Minimal single-node / single-GPU verl RL demo on Kubernetes.
 # GRPO on GSM8K with Qwen2.5-0.5B-Instruct. Tuned to fit ~20GB GPUs (e.g. RTX 4000 Ada).
 #
+# Quick-validation config: runs only 5 training steps (~10 min) to verify the
+# pipeline end-to-end. For a full run, remove `trainer.total_training_steps=5`
+# and set `save_freq`/`test_freq` back to a positive value (e.g. 10).
+#
 # Usage:
 #   kubectl apply -f verl-grpo-single-gpu.yaml
 #   kubectl logs -f job/verl-grpo-demo
@@ -86,9 +90,10 @@ spec:
                 trainer.val_before_train=False \
                 trainer.n_gpus_per_node=1 \
                 trainer.nnodes=1 \
-                trainer.save_freq=10 \
-                trainer.test_freq=10 \
-                trainer.total_epochs=1
+                trainer.save_freq=-1 \
+                trainer.test_freq=-1 \
+                trainer.total_epochs=1 \
+                trainer.total_training_steps=5
           volumeMounts:
             - name: dshm
               mountPath: /dev/shm
