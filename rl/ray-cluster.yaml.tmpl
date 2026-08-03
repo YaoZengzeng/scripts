@@ -1,0 +1,378 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: verl-cluster
+  namespace: ${NAMESPACE}
+spec:
+  rayVersion: '2.47.1'
+  headGroupSpec:
+    rayStartParams:
+      num-cpus: "4"
+    template:
+      spec:
+        # Co-locate the head on the same node as the worker. EPP and Envoy run on
+        # the head, so keeping it on the worker's node keeps rollout routing on-node.
+        # The worker is anchored to a GPU node by its nvidia.com/gpu request; the head
+        # follows it via podAffinity (head -> worker, one direction, to avoid deadlock).
+        affinity:
+          podAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  ray.io/cluster: verl-cluster
+                  ray.io/node-type: worker
+              topologyKey: kubernetes.io/hostname
+        # Neither the EPP nor Envoy is baked into the verl image. At pod start the
+        # fetch-binaries init container pulls the SEPARATE (public) EPP and Envoy
+        # images with crane and extracts their binaries into the shared llm-d-bins
+        # volume, which ray-head then launches via VERL_EPP_BINARY
+        # (/opt/llm-d-bins/epp) and VERL_ENVOY_BINARY (/opt/llm-d-bins/envoy). So
+        # iterating on either is: bump its image tag + recreate this pod - the verl
+        # image never rebuilds. push-epp.sh covers the faster no-recreate EPP loop.
+        initContainers:
+        - name: fetch-binaries
+          # Generic registry tool pinned by digest (go-containerregistry crane
+          # :debug, which ships /busybox/sh + /busybox/tar). Never rebuilt.
+          image: ${IMG_CRANE}
+          command: ["/busybox/sh", "-c"]
+          args:
+          - |
+            set -e
+            /ko-app/crane export --platform linux/amd64 "$EPP_IMAGE"   - | /busybox/tar -xOf - app/epp             > /opt/llm-d-bins/epp
+            /ko-app/crane export --platform linux/amd64 "$ENVOY_IMAGE" - | /busybox/tar -xOf - usr/local/bin/envoy > /opt/llm-d-bins/envoy
+            chmod +x /opt/llm-d-bins/epp /opt/llm-d-bins/envoy
+          env:
+          # Bump these tags (in deploy/deploy.env) to change the EPP / Envoy
+          # version a recreated pod boots with. Must be anonymously-pullable
+          # (public) images.
+          - name: EPP_IMAGE
+            value: "${IMG_EPP}"
+          - name: ENVOY_IMAGE
+            value: "${IMG_ENVOY}"
+          volumeMounts:
+          - mountPath: /opt/llm-d-bins
+            name: llm-d-bins
+        containers:
+        - name: ray-head
+          image: ${IMG_VERL} # stock verl env image (for PD, build from deploy/Dockerfile.pd)
+          imagePullPolicy: Always
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                - /bin/bash
+                - -c
+                - |
+                  exec > /tmp/setup_log.txt 2>&1
+                  set -euo pipefail
+                  echo "Starting setup..."
+
+                  # Install verl from pinned commit
+                  git clone https://github.com/volcengine/verl.git /tmp/verl/verl
+                  cd /tmp/verl/verl && git checkout 334d9f8b03816382cbd72e898bc8ae04efca6fbe
+                  pip install --no-deps -e /tmp/verl/verl
+
+                  # Install the integration package (public repo). Fail loudly: set -e
+                  # aborts before the ready marker if the clone/build fails, and the
+                  # import check turns a silent empty install into a hard postStart error
+                  # (container restarts) instead of a pod that looks ready but is broken.
+                  pip install --no-deps --no-cache-dir --force-reinstall "git+https://github.com/llm-d-incubation/llm-d-rl.git#subdirectory=integrations/verl"
+                  python3 -c "import llm_d_rl_verl_integration" || { echo "FATAL: integration package not importable after install"; exit 1; }
+
+                  # Prepare data and prefetch the model.
+                  mkdir -p /tmp/verl/hf_cache/datasets
+
+                  # Generate training data
+                  python3 /tmp/verl/verl/examples/data_preprocess/gsm8k.py --local_save_dir /tmp/verl/data/gsm8k
+
+                  # Pre-fetch model weights (tokenizer/config only on head)
+                  python3 -c "
+                  from huggingface_hub import snapshot_download
+                  snapshot_download('Qwen/Qwen3-0.6B', local_dir='/tmp/verl/models/Qwen3-0.6B',
+                      ignore_patterns=['*.safetensors', '*.bin', '*.pt'],
+                      local_dir_use_symlinks=False)
+                  "
+                  echo "Setup complete" > /tmp/verl_ready.txt
+          env:
+          # --- Runtime paths ---
+          - name: HOME
+            value: "/tmp"
+
+          # --- HuggingFace cache ---
+          - name: HF_HOME
+            value: "/tmp/verl/hf_cache"
+          - name: HF_DATASETS_CACHE
+            value: "/tmp/verl/hf_cache/datasets"
+          - name: XDG_CACHE_HOME
+            value: "/tmp/verl/hf_cache"
+          - name: HUGGINGFACE_HUB_CACHE
+            value: "/tmp/verl/hf_cache"
+
+          # --- Compile / framework caches ---
+          - name: TRITON_CACHE_DIR
+            value: "/tmp/triton"
+          - name: FLASHINFER_WORKSPACE_DIR
+            value: "/tmp/flashinfer"
+
+          # --- Experiment tracking ---
+          - name: WANDB_MODE
+            value: "offline"
+
+          # --- verl logging ---
+          - name: VERL_LOGGING_LEVEL
+            value: "INFO"
+          - name: VERL_FILE_LOGGER_ROOT
+            value: "/tmp/verl/logs"
+
+          # --- EPP / Envoy binary paths (filled by the fetch-binaries init container) ---
+          # Neither binary is in the verl image; fetch-binaries extracts them from
+          # their separate images into /opt/llm-d-bins, and push-epp.sh can
+          # overwrite the EPP live. The actor launches whatever binaries are here.
+          - name: VERL_EPP_BINARY
+            value: "/opt/llm-d-bins/epp"
+          - name: VERL_ENVOY_BINARY
+            value: "/opt/llm-d-bins/envoy"
+
+          # --- vLLM / Ray settings ---
+          - name: VLLM_USE_V1
+            value: "1"
+          - name: TOKENIZERS_PARALLELISM
+            value: "false"
+          - name: OMP_NUM_THREADS
+            value: "1"
+
+          # --- NCCL ---
+          - name: NCCL_DEBUG
+            value: "INFO"
+
+          # --- llm-d integration debug logging (default: quiet) ---
+          # Uncomment to enable verbose output from integration components.
+          # See README ## Debug logging for details.
+          # - name: VERL_VLLM_LOG_LEVEL
+          #   value: "DEBUG"
+          # - name: VERL_SIDECAR_LOG_LEVEL
+          #   value: "5"
+          # - name: VERL_EPP_VERBOSITY
+          #   value: "5"
+          # - name: VERL_ENVOY_LOG_LEVEL
+          #   value: "debug"
+
+          resources:
+            # Head runs the driver (fit() loop) + Ray GCS + EPP; NO GPU.
+            # Sized small for a text task (gsm8k). Raise memory only if you switch
+            # to a multimodal workload or a much larger model.
+            limits:
+              cpu: "8"
+              memory: "32G"
+            requests:
+              cpu: "4"
+              memory: "16G"
+          ports:
+          - containerPort: 6379
+            name: gcs-server
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          - containerPort: 8081
+            name: envoy
+          volumeMounts:
+          # Writable (not readOnly): push-epp.sh kubectl-cp's into here at runtime.
+          - mountPath: /opt/llm-d-bins
+            name: llm-d-bins
+          - mountPath: /dev/shm
+            name: dshm
+          - mountPath: /etc/llmd-configs
+            name: llmd-epp-configs
+            readOnly: true
+        volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: "32Gi"
+        - name: llmd-epp-configs
+          configMap:
+            name: llmd-epp-configs
+        # Shared scratch: fetch-binaries (init) extracts the EPP and Envoy binaries
+        # here and ray-head reads them at /opt/llm-d-bins (VERL_EPP_BINARY /
+        # VERL_ENVOY_BINARY); push-epp.sh can overwrite the EPP live. Starts empty
+        # on a fresh pod.
+        - name: llm-d-bins
+          emptyDir: {}
+
+  workerGroupSpecs:
+  # GPU workers: the worker pod's nvidia.com/gpu request must match the GPU count the
+  # run command targets (NGPUS_PER_NODE). As shipped the 4-GPU option below is active
+  # (Option A 8-GPU is commented out); enable whichever matches your run.
+  # Raise replicas/maxReplicas only if you add nodes and adjust verl nnodes / n_gpus_per_node.
+  - groupName: fsdp-workers
+    replicas: 1
+    minReplicas: 1
+    maxReplicas: 1
+    rayStartParams:
+      num-cpus: "48"   # limit Ray's visible CPUs to reduce internal thread spawning
+    template:
+      spec:
+        # No node pinning: the nvidia.com/gpu request anchors this worker to a GPU
+        # node, and the head co-locates onto whatever node it lands on (see head
+        # podAffinity above). The head must NOT also be referenced here, or mutual
+        # required affinity would deadlock the scheduler.
+        # (Original manifest excluded known-faulty GPU hosts via nodeAffinity NotIn;
+        # removed for the demo. Re-add a nodeAffinity block here if you need to
+        # steer the worker to / away from specific nodes.)
+        # The sidecar is NOT baked into the verl image. At pod start the
+        # fetch-sidecar init container pulls the SEPARATE (public) sidecar image
+        # with crane and extracts its /app/pd-sidecar binary into the shared
+        # llm-d-bins volume, which decode replicas launch via VERL_SIDECAR_BINARY
+        # (/opt/llm-d-bins/pd-sidecar). Only used in PD mode. Bump the image tag in
+        # deploy/deploy.env + recreate the pod to change it. Worker-only: the EPP
+        # and Envoy binaries are fetched on the head, the sidecar runs here.
+        initContainers:
+        - name: fetch-sidecar
+          # Generic registry tool pinned by digest (go-containerregistry crane
+          # :debug, which ships /busybox/sh + /busybox/tar). Never rebuilt.
+          image: ${IMG_CRANE}
+          command: ["/busybox/sh", "-c"]
+          args:
+          - |
+            set -e
+            /ko-app/crane export --platform linux/amd64 "$SIDECAR_IMAGE" - | /busybox/tar -xOf - app/pd-sidecar > /opt/llm-d-bins/pd-sidecar
+            chmod +x /opt/llm-d-bins/pd-sidecar
+          env:
+          # Bump this tag (in deploy/deploy.env) to change the sidecar version a
+          # recreated pod boots with. Must be an anonymously-pullable (public) image.
+          - name: SIDECAR_IMAGE
+            value: "${IMG_SIDECAR}"
+          volumeMounts:
+          - mountPath: /opt/llm-d-bins
+            name: llm-d-bins
+        containers:
+        - name: ray-worker
+          image: ${IMG_VERL} # stock verl env image (for PD, build from deploy/Dockerfile.pd)
+          imagePullPolicy: Always
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                - /bin/bash
+                - -c
+                - |
+                  exec > /tmp/setup_log.txt 2>&1
+                  set -euo pipefail
+                  # Install verl from pinned commit
+                  git clone https://github.com/volcengine/verl.git /tmp/verl/verl
+                  cd /tmp/verl/verl && git checkout 334d9f8b03816382cbd72e898bc8ae04efca6fbe
+                  pip install --no-deps -e /tmp/verl/verl
+
+                  # Install the integration package (public repo). Fail loudly: set -e
+                  # aborts before the ready marker if the clone/build fails, and the
+                  # import check turns a silent empty install into a hard postStart error
+                  # (container restarts) instead of a pod that looks ready but is broken.
+                  pip install --no-deps --no-cache-dir --force-reinstall "git+https://github.com/llm-d-incubation/llm-d-rl.git#subdirectory=integrations/verl"
+                  python3 -c "import llm_d_rl_verl_integration" || { echo "FATAL: integration package not importable after install"; exit 1; }
+                  mkdir -p /tmp/verl/hf_cache/datasets
+                  python3 /tmp/verl/verl/examples/data_preprocess/gsm8k.py --local_save_dir /tmp/verl/data/gsm8k
+                  # Full model weights for FSDP training + vLLM rollout
+                  python3 -c "
+                  from huggingface_hub import snapshot_download
+                  snapshot_download('Qwen/Qwen3-0.6B', local_dir='/tmp/verl/models/Qwen3-0.6B',
+                      local_dir_use_symlinks=False)
+                  "
+                  echo "Setup complete" > /tmp/verl_ready.txt
+          env:
+          # --- Runtime paths ---
+          - name: HOME
+            value: "/tmp"
+
+          # --- HuggingFace cache ---
+          - name: HF_HOME
+            value: "/tmp/verl/hf_cache"
+          - name: HF_DATASETS_CACHE
+            value: "/tmp/verl/hf_cache/datasets"
+          - name: XDG_CACHE_HOME
+            value: "/tmp/verl/hf_cache"
+          - name: HUGGINGFACE_HUB_CACHE
+            value: "/tmp/verl/hf_cache"
+
+          # --- Compile / framework caches ---
+          - name: TRITON_CACHE_DIR
+            value: "/tmp/triton"
+
+          # --- Experiment tracking ---
+          - name: WANDB_MODE
+            value: "offline"
+
+          # --- verl logging ---
+          - name: VERL_LOGGING_LEVEL
+            value: "INFO"
+
+          # --- Sidecar binary path (filled by the fetch-sidecar init container) ---
+          # The sidecar is not baked into the verl image; fetch-sidecar extracts it
+          # from the separate sidecar image into /opt/llm-d-bins. Decode replicas
+          # launch whatever binary is here (PD mode only).
+          - name: VERL_SIDECAR_BINARY
+            value: "/opt/llm-d-bins/pd-sidecar"
+
+          # --- vLLM / Ray settings ---
+          - name: VLLM_USE_V1
+            value: "1"
+          - name: PYTORCH_CUDA_ALLOC_CONF
+            # CuMemAllocator (used by vLLM sleep/wake) is incompatible with expandable_segments.
+            value: "expandable_segments:False"
+          - name: TOKENIZERS_PARALLELISM
+            value: "false"
+          - name: OMP_NUM_THREADS
+            value: "1"
+          - name: RAY_max_grpc_threads
+            value: "32"
+
+          # --- NCCL ---
+          - name: NCCL_DEBUG
+            value: "INFO"
+
+          # --- llm-d integration debug logging (default: quiet) ---
+          # Uncomment to enable verbose output from integration components.
+          # See README ## Debug logging for details.
+          # - name: VERL_VLLM_LOG_LEVEL
+          #   value: "DEBUG"
+          # - name: VERL_SIDECAR_LOG_LEVEL
+          #   value: "5"
+          # - name: VERL_EPP_VERBOSITY
+          #   value: "5"
+          # - name: VERL_ENVOY_LOG_LEVEL
+          #   value: "debug"
+
+          resources:
+            # --- 2 GPUs (minimal EPP demo: TP=1 -> 2 vLLM replicas) ---
+            # Both RTX 4000 Ada (~20GB) on ONE node go to this worker pod. The head
+            # co-locates here (no GPU). Adjust cpu/memory to fit your node — head +
+            # worker requests must both be satisfiable on this single node.
+            limits:
+              cpu: "16"
+              memory: "64G"
+              nvidia.com/gpu: "2"
+            requests:
+              cpu: "8"
+              memory: "32G"
+              nvidia.com/gpu: "2"
+          volumeMounts:
+          - mountPath: /opt/llm-d-bins
+            name: llm-d-bins
+          - mountPath: /dev/shm
+            name: dshm
+          - mountPath: /etc/llmd-configs
+            name: llmd-epp-configs
+            readOnly: true
+        volumes:
+        # Shared scratch: fetch-sidecar (init) extracts the sidecar binary here and
+        # decode replicas read it at /opt/llm-d-bins (VERL_SIDECAR_BINARY). Starts
+        # empty on a fresh pod.
+        - name: llm-d-bins
+          emptyDir: {}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: "64Gi"
+        - name: llmd-epp-configs
+          configMap:
+            name: llmd-epp-configs
