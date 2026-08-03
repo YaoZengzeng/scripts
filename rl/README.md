@@ -18,12 +18,27 @@ Qwen3-0.6B. Model size is irrelevant for demonstrating routing.
 
 - Best: **1 node with 2 GPUs** (avoids cross-node NCCL entirely — these cards have
   no NVLink). 2 nodes × 1 GPU also works but trains slowly over Ethernet NCCL.
+- **Node sizing**: head + worker co-locate on the same node, so their requests
+  must fit together. Tuned for a **16 CPU / 64G** node: worker requests 8 CPU / 24G
+  (limit 12 CPU / 34G) for FSDP + 2 vLLM workers; head requests 2 CPU / 14G (limit
+  4 CPU / 26G) — the head is memory-heavy (driver + object store + EPP + the
+  AgentLoop/Reward workers + sequence gathering), so it gets a large share.
+  Limits sum to 60G, leaving headroom under 64G. The GPUs are still ~20GB each, so
+  GPU-side knobs (`gpu_memory_utilization`, `enforce_eager`) stay modest.
 
 ## Files
 
 - `ray-cluster.yaml.tmpl` — KubeRay manifest, edited from the upstream example:
-  worker `nvidia.com/gpu: 2`, small head/worker cpu+memory, `postStart` downloads
-  Qwen3-0.6B instead of Qwen3-4B, faulty-node `nodeAffinity` removed.
+  worker `nvidia.com/gpu: 2`, small head/worker cpu+memory (fits an 8C/32G node),
+  `postStart` downloads Qwen3-0.6B instead of Qwen3-4B, faulty-node `nodeAffinity`
+  removed. The `postStart` `pip install` of the integration is **pinned to commit
+  `18812f2b`** — later upstream commits split out a separate `llm_d_rl_common`
+  package that this flow does not install (unpinned installs fail at runtime with
+  `ModuleNotFoundError: No module named 'llm_d_rl_common'`). `postStart` also
+  **patches** the integration's head-node lookup: it matches the Ray head by the
+  `node:__internal_head__` resource instead of by IP, because on KubeRay the head
+  is addressed via a Service DNS name and the stock IP match fails
+  (`RuntimeError: Could not find a live Ray node with GCS IP ...`).
 - `run-demo.sh` — **one-shot** launcher: creates the namespace, deploys the
   cluster, waits for setup, and runs training. No other configuration needed.
 

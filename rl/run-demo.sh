@@ -124,6 +124,10 @@ bash /tmp/verl/verl/examples/grpo_trainer/run_qwen3_4b_fsdp.sh \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.n="$N" \
     actor_rollout_ref.rollout.gpu_memory_utilization="$GPU_MEM_UTIL" \
+    actor_rollout_ref.rollout.enforce_eager=True \
+    actor_rollout_ref.rollout.max_model_len=2048 \
+    actor_rollout_ref.rollout.max_num_batched_tokens=2048 \
+    actor_rollout_ref.rollout.max_num_seqs=64 \
     trainer.logger='["console","file"]' \
     trainer.total_training_steps="$STEPS" \
     trainer.val_before_train=False \

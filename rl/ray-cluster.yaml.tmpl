@@ -7,7 +7,18 @@ spec:
   rayVersion: '2.47.1'
   headGroupSpec:
     rayStartParams:
-      num-cpus: "4"
+      # The GPU placement group is STRICT_PACK'd onto the worker, which we cap at
+      # exactly the CPUs that group needs (see worker num-cpus). That leaves the
+      # CPU-only actors -- TaskRunner driver, AgentLoopWorker, RewardLoopWorker,
+      # load balancer -- nowhere to go but the head, so give the head plenty of
+      # logical CPUs to host them all (they are light; logical > physical is fine).
+      num-cpus: "24"
+      # This head shares its k8s node with the GPU worker. Ray auto-detects the
+      # node's physical GPUs even though this pod was allocated none, so it would
+      # advertise phantom GPUs and let Ray schedule GPU WorkerDicts here (which then
+      # fail: no real GPU, and the head only downloads tokenizer/config weights).
+      # Pin to 0 so all GPU work stays on the real worker.
+      num-gpus: "0"
     template:
       spec:
         # Co-locate the head on the same node as the worker. EPP and Envoy run on
@@ -67,6 +78,21 @@ spec:
                   set -euo pipefail
                   echo "Starting setup..."
 
+                  # The fetch-binaries initContainer extracts epp/envoy into
+                  # /opt/llm-d-bins and the head env sets VERL_EPP_BINARY /
+                  # VERL_ENVOY_BINARY to point there. However, on this cluster the
+                  # pod-spec env does NOT reliably propagate to the Ray actor process
+                  # that launches EPP (LlmdActor), so it falls back to the hardcoded
+                  # default /usr/local/bin/epp and fails with "EPP binary not found".
+                  # Since EPP is pinned to the head node, also stage the binaries at
+                  # the default paths here so the actor finds them regardless of env.
+                  for b in epp envoy; do
+                    if [ -f "/opt/llm-d-bins/$b" ]; then
+                      cp -f "/opt/llm-d-bins/$b" "/usr/local/bin/$b"
+                      chmod +x "/usr/local/bin/$b"
+                    fi
+                  done
+
                   # Install verl from pinned commit
                   git clone https://github.com/volcengine/verl.git /tmp/verl/verl
                   cd /tmp/verl/verl && git checkout 334d9f8b03816382cbd72e898bc8ae04efca6fbe
@@ -76,8 +102,15 @@ spec:
                   # aborts before the ready marker if the clone/build fails, and the
                   # import check turns a silent empty install into a hard postStart error
                   # (container restarts) instead of a pod that looks ready but is broken.
-                  pip install --no-deps --no-cache-dir --force-reinstall "git+https://github.com/llm-d-incubation/llm-d-rl.git#subdirectory=integrations/verl"
+                  pip install --no-deps --no-cache-dir --force-reinstall "git+https://github.com/llm-d-incubation/llm-d-rl.git@18812f2b2f316893859d9fa69edf761f7c4e07b4#subdirectory=integrations/verl"
                   python3 -c "import llm_d_rl_verl_integration" || { echo "FATAL: integration package not importable after install"; exit 1; }
+
+                  # Patch: on KubeRay the Ray head is addressed by a Service DNS name,
+                  # so the integration's IP-based head-node lookup (NodeManagerAddress
+                  # == head_ip) never matches and EPP placement fails. Match the head
+                  # by Ray's internal head resource instead.
+                  PATCH_F=$(python3 -c "import llm_d_rl_verl_integration.base_agent_loop_manager as m; print(m.__file__)")
+                  sed -i 's/if node\["Alive"\] and node\["NodeManagerAddress"\] == head_ip:/if node["Alive"] and node["Resources"].get("node:__internal_head__"):/' "$PATCH_F"
 
                   # Prepare data and prefetch the model.
                   mkdir -p /tmp/verl/hf_cache/datasets
@@ -158,15 +191,19 @@ spec:
           #   value: "debug"
 
           resources:
-            # Head runs the driver (fit() loop) + Ray GCS + EPP; NO GPU.
-            # Sized small for a text task (gsm8k). Raise memory only if you switch
-            # to a multimodal workload or a much larger model.
+            # Head runs the driver (fit() loop) + Ray GCS/object store + EPP +
+            # the CPU-only AgentLoopWorker / RewardLoopWorker actors, and gathers
+            # generated sequences. In practice Ray packs those actors (and the
+            # By capping the worker's Ray CPUs at the GPU placement group's need,
+            # all CPU-only actors (driver, AgentLoopWorker, RewardLoopWorker, load
+            # balancer, ~11GiB total) are forced onto the head -- so size the head
+            # to hold them.
             limits:
               cpu: "8"
-              memory: "32G"
+              memory: "16G"
             requests:
               cpu: "4"
-              memory: "16G"
+              memory: "10G"
           ports:
           - containerPort: 6379
             name: gcs-server
@@ -189,7 +226,9 @@ spec:
         - name: dshm
           emptyDir:
             medium: Memory
-            sizeLimit: "32Gi"
+            # Memory-backed emptyDir (counts against the pod's memory when used).
+            # Ray's object store maps /dev/shm; give the head some room.
+            sizeLimit: "3Gi"
         - name: llmd-epp-configs
           configMap:
             name: llmd-epp-configs
@@ -210,7 +249,11 @@ spec:
     minReplicas: 1
     maxReplicas: 1
     rayStartParams:
-      num-cpus: "48"   # limit Ray's visible CPUs to reduce internal thread spawning
+      # verl builds a STRICT_PACK placement group of 2 bundles x {CPU:3, GPU:1}
+      # (one per vLLM replica) that must fit on THIS worker, so Ray needs >=6 CPUs
+      # here. Cap at 8 (6 for the group + small margin) so the CPU-only actors are
+      # pushed to the head instead of piling up here on top of the GPU work.
+      num-cpus: "8"
     template:
       spec:
         # No node pinning: the nvidia.com/gpu request anchors this worker to a GPU
@@ -268,8 +311,13 @@ spec:
                   # aborts before the ready marker if the clone/build fails, and the
                   # import check turns a silent empty install into a hard postStart error
                   # (container restarts) instead of a pod that looks ready but is broken.
-                  pip install --no-deps --no-cache-dir --force-reinstall "git+https://github.com/llm-d-incubation/llm-d-rl.git#subdirectory=integrations/verl"
+                  pip install --no-deps --no-cache-dir --force-reinstall "git+https://github.com/llm-d-incubation/llm-d-rl.git@18812f2b2f316893859d9fa69edf761f7c4e07b4#subdirectory=integrations/verl"
                   python3 -c "import llm_d_rl_verl_integration" || { echo "FATAL: integration package not importable after install"; exit 1; }
+                  # Patch: on KubeRay the Ray head is addressed by a Service DNS name,
+                  # so the integration's IP-based head-node lookup never matches. Match
+                  # the head by Ray's internal head resource instead.
+                  PATCH_F=$(python3 -c "import llm_d_rl_verl_integration.base_agent_loop_manager as m; print(m.__file__)")
+                  sed -i 's/if node\["Alive"\] and node\["NodeManagerAddress"\] == head_ip:/if node["Alive"] and node["Resources"].get("node:__internal_head__"):/' "$PATCH_F"
                   mkdir -p /tmp/verl/hf_cache/datasets
                   python3 /tmp/verl/verl/examples/data_preprocess/gsm8k.py --local_save_dir /tmp/verl/data/gsm8k
                   # Full model weights for FSDP training + vLLM rollout
@@ -344,16 +392,17 @@ spec:
 
           resources:
             # --- 2 GPUs (minimal EPP demo: TP=1 -> 2 vLLM replicas) ---
-            # Both RTX 4000 Ada (~20GB) on ONE node go to this worker pod. The head
-            # co-locates here (no GPU). Adjust cpu/memory to fit your node — head +
-            # worker requests must both be satisfiable on this single node.
+            # Both GPUs on ONE node go to this worker pod. FSDP training + 2 vLLM
+            # workers live here. With CPU-only actors pushed to the head, the worker
+            # only holds the GPU work (2x FSDP + 2x colocated vLLM). The FSDP ref/actor
+            # workers offload params to CPU (~9GiB each), so give it a solid share.
             limits:
-              cpu: "16"
-              memory: "64G"
+              cpu: "12"
+              memory: "38G"
               nvidia.com/gpu: "2"
             requests:
               cpu: "8"
-              memory: "32G"
+              memory: "24G"
               nvidia.com/gpu: "2"
           volumeMounts:
           - mountPath: /opt/llm-d-bins
@@ -372,7 +421,9 @@ spec:
         - name: dshm
           emptyDir:
             medium: Memory
-            sizeLimit: "64Gi"
+            # Memory-backed emptyDir (counts against the pod's memory when used).
+            # Comfortable size for NCCL/torch shm now that the worker has 48G.
+            sizeLimit: "8Gi"
         - name: llmd-epp-configs
           configMap:
             name: llmd-epp-configs
