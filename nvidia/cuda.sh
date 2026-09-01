@@ -5,7 +5,7 @@
 # on Ubuntu 22.04, then verify everything works.
 #
 # Usage:
-#   sudo ./cuda.sh [all|driver|cuda|nvidia-docker|verify]
+#   sudo ./cuda.sh [all|driver|cuda|nvidia-docker|gpustat|verify]
 #
 # Environment variables:
 #   NVIDIA_DRIVER_VERSION  (default: 570)       driver branch
@@ -176,7 +176,26 @@ install_nvidia_docker() {
 }
 
 # --------------------------------------------------------------------------- #
-# Step 4: Verify Everything
+# Step 4: Install gpustat
+# --------------------------------------------------------------------------- #
+install_gpustat() {
+  log_info "=== Installing gpustat ==="
+  apt_update_once
+
+  log_info "Installing gpustat..."
+  apt-get install -y -qq gpustat
+
+  if command -v gpustat &>/dev/null; then
+    log_success "gpustat installed."
+    gpustat --version
+  else
+    log_error "gpustat installation failed."
+    return 1
+  fi
+}
+
+# --------------------------------------------------------------------------- #
+# Step 5: Verify Everything
 # --------------------------------------------------------------------------- #
 verify() {
   log_info "=== Verification ==="
@@ -248,6 +267,16 @@ verify() {
   fi
   echo ""
 
+  # 5) gpustat
+  log_info "--- gpustat ---"
+  if command -v gpustat &>/dev/null; then
+    gpustat --version
+    log_success "gpustat: OK"
+  else
+    log_warn "gpustat: NOT FOUND (run 'sudo ./cuda.sh gpustat' to install)"
+  fi
+  echo ""
+
   # Summary
   if [[ ${failed} -eq 0 ]]; then
     log_success "=== All checks passed ==="
@@ -264,6 +293,7 @@ install_all() {
   install_driver
   install_cuda
   install_nvidia_docker
+  install_gpustat
   echo ""
   verify
 }
@@ -276,15 +306,17 @@ case "${MODE}" in
   driver)         install_driver ;;
   cuda)           install_cuda ;;
   nvidia-docker)  install_nvidia_docker ;;
+  gpustat)        install_gpustat ;;
   verify)         verify ;;
   *)
     log_error "Unknown mode: '${MODE}'"
-    echo "Usage: sudo $0 [all|driver|cuda|nvidia-docker|verify]"
+    echo "Usage: sudo $0 [all|driver|cuda|nvidia-docker|gpustat|verify]"
     echo ""
-    echo "  all            Install driver + CUDA + nvidia-docker, then verify"
+    echo "  all            Install driver + CUDA + nvidia-docker + gpustat, then verify"
     echo "  driver         Install NVIDIA GPU driver only"
     echo "  cuda           Install CUDA Toolkit only"
     echo "  nvidia-docker  Install NVIDIA Container Toolkit + Docker"
+    echo "  gpustat        Install gpustat only"
     echo "  verify         Verify all components are working"
     exit 1
     ;;
