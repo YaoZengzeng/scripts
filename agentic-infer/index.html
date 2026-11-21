@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#142d2a">
-  <meta name="description" content="以 NVIDIA Dynamo 为例，通俗讲解 Agentic 推理平台从请求接入、路由调度到 KV 缓存和资源管理的端到端优化。">
+  <meta name="description" content="面向技术分享：从 Agentic 负载特征与 NVIDIA Dynamo 架构出发，分析 KV 感知路由、跨层调度、分层缓存、P/D 分离与弹性，并给出配置与评估方法。">
   <title>Agentic 推理 · 端到端优化</title>
   <link rel="stylesheet" href="styles.css">
   <script src="presentation.js" defer></script>
@@ -25,11 +25,11 @@
   <main id="deck">
     <section class="slide cover dark" id="s01" aria-labelledby="title01" data-topic="开场">
       <div class="cover-copy">
-        <p class="eyebrow">从单次请求，到完整任务</p>
+        <p class="eyebrow">NVIDIA DYNAMO / 架构与性能工程</p>
         <h1 id="title01">Agentic 推理<br>端到端<span>优化</span></h1>
-        <p class="hero-sub">让 Agent 少等待，让上下文少重算，<br>让每一份 GPU 算力用在真正的新工作上。</p>
+        <p class="hero-sub">从会话负载与 KV 状态出发，<br>协同优化路由、调度、缓存与资源编排。</p>
         <div class="hero-tags"><span>请求接入</span><span>智能路由</span><span>KV 缓存</span><span>资源编排</span></div>
-        <p class="cover-meta">以 NVIDIA Dynamo 为例 · 中文技术分享<br>16 页 / 12 个优化点 / 原创中文示意图</p>
+        <p class="cover-meta">面向推理平台与系统工程实践 · 中文技术分享<br>23 页 / 12 个优化点 / 架构、机制、配置与评估</p>
       </div>
       <figure class="hero-figure">
         <svg viewBox="0 0 560 500" role="img" aria-labelledby="hero-title">
@@ -58,13 +58,13 @@
     </section>
 
     <section class="slide" id="s02" aria-labelledby="title02" data-topic="全局视角">
-      <header class="slide-heading"><p class="eyebrow">先看问题 / 为什么 Agent 不一样</p><h2 id="title02">请求是一瞬间，<em>任务是一整条链</em></h2><p class="lead">一轮“想一想 → 调工具 → 再想一想”，会反复携带已有上下文。</p></header>
+      <header class="slide-heading"><p class="eyebrow">背景 01 / 从无状态 API 到有状态工作流</p><h2 id="title02">Agentic 推理的优化单位：<em>任务 DAG</em></h2><p class="lead">单次 HTTP 请求是无状态接口，但多轮推理在上下文、缓存和执行依赖上高度相关。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>多轮重复读</strong><span>系统提示、工具定义与历史反复出现；KV 缓存就像“读过材料后留下的笔记”。</span></li>
-            <li><strong>等待与突发交替</strong><span>工具执行时模型暂歇；子 Agent 并行启动时，请求又会集中涌入。</span></li>
-            <li><strong>最后一步决定体验</strong><span>多条分支需要汇合，最慢的关键分支可能拖住整个任务。</span></li>
+            <li><strong>多轮依赖：递增前缀与重复 Prefill</strong><span>系统提示、工具定义与历史在多轮中重复输入；缓存丢失会把已完成的计算重新放回关键路径。</span></li>
+            <li><strong>执行结构：串行链 + 并行分支</strong><span>工具调用产生暂停 / 恢复，子 Agent fan-out 产生突发并发；fan-in 汇合受最慢依赖分支约束。</span></li>
+            <li><strong>优化指标：任务完成时间与成功成本</strong><span>单请求 TTFT 改善不一定缩短整个任务；需要把模型推理、工具耗时、重试和关键路径一起关联。</span></li>
           </ul>
           <div class="takeaway"><b>优化目标</b>在任务质量不下降的前提下，缩短完成时间，降低每个成功任务的成本。</div>
         </div>
@@ -84,20 +84,139 @@
             <path d="M30 247v9h408v-9" class="line"/><text x="232" y="283" class="small">连续且一致的前缀 → 复用已有 KV</text>
             <rect x="28" y="312" width="544" height="36" rx="8" class="box white"/><text x="300" y="336" class="small">接入 → 路由 → 计算与缓存 → 工具 → 下一轮</text>
           </svg>
-          <figcaption>示意图，非性能数据。Prefill＝处理输入；Decode＝逐步生成输出。</figcaption>
+          <figcaption>Prefill 处理输入并构建 KV；Decode 基于 KV 逐步生成。缓存复用减少前者，不消除后者。</figcaption>
         </figure>
       </div>
       <footer class="slide-source">依据：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference">Dynamo · Full-Stack Optimizations for Agentic Inference</a></footer>
     </section>
 
-    <section class="slide" id="s03" aria-labelledby="title03" data-topic="接入层">
-      <header class="slide-heading"><p class="eyebrow">优化 01 / 接入层 <span class="status ready">已支持 + 应用侧实践</span></p><h2 id="title03">统一请求结构，<em>保持前缀稳定</em></h2><p class="lead">像整理一份档案：固定资料放前面，每次只把新进展追加在后面。</p></header>
+    <section class="slide" id="workload-profile" aria-labelledby="workload-heading" data-topic="负载特征">
+      <header class="slide-heading"><p class="eyebrow">背景 02 / 负载画像</p><h2 id="workload-heading">长上下文、多轮复用与<em>突发并发</em></h2><p class="lead">相同的 QPS，可能对应完全不同的输入工作量、KV 占用和调度压力。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>让不同 Agent 接入同一平台</strong><span>Dynamo 提供 Chat Completions、Responses、Messages 接口，适配文本、工具调用和推理内容。</span></li>
-            <li><strong>把“固定”与“变化”分开</strong><span>应用侧稳定系统提示、工具定义及其顺序；避免把时间戳等变化字段放在公共前缀开头。</span></li>
-            <li><strong>稳定的是 token 前缀，不只是意思</strong><span>换模板、重排工具或改写历史都可能减少命中；语义相似不等于缓存可复用。</span></li>
+            <li><strong>ISL / OSL 分布，而非只看请求数</strong><span>ISL 是输入长度，OSL 是输出长度。检索、代码编辑与长推理的分布不同，均值会掩盖长尾与 KV 容量压力。</span></li>
+            <li><strong>WORM：一次写入，多次读取</strong><span>原文记录的 42 次 Claude Code 调用中，缓存读取约 891K token、写入约 76K token；重点是复用结构，而非绝对规模。</span></li>
+            <li><strong>工具等待改变缓存“热度”</strong><span>原文讨论 2–30 秒工具暂停；LRU 可能在 Agent 恢复前淘汰前缀，造成 resume miss 和重复 Prefill。</span></li>
+          </ul>
+          <div class="takeaway"><b>采样建议</b>同时记录输入 / 输出长度、复用比例、工具等待、分支宽度和会话持续时间，保留它们之间的关联。</div>
+        </div>
+        <figure class="diagram">
+          <svg viewBox="0 0 600 370" role="img" aria-labelledby="profile-chart-title">
+            <title id="profile-chart-title">原文 42 次调用样本：缓存读取 891K token，写入 76K token，读写比约 11.7；不是 Dynamo 性能测试</title>
+            <text x="30" y="36" class="svg-kicker">原文会话样本 · 缓存 token 统计</text>
+            <text x="30" y="89" class="left">读取 / read</text>
+            <rect x="30" y="105" width="470" height="42" rx="7" class="box teal"/><text x="539" y="133">891K</text>
+            <text x="30" y="191" class="left">写入 / write</text>
+            <rect x="30" y="207" width="40" height="42" rx="7" class="box amber"/><text x="107" y="235">76K</text>
+            <rect x="30" y="279" width="540" height="65" rx="12" class="box lime"/>
+            <text x="300" y="306" class="bold">读 / 写 ≈ 11.7</text><text x="300" y="332" class="small">优化对象：让重复读取持续命中，而非反复重建</text>
+          </svg>
+          <figcaption>托管 API 会话观测值，不是 Dynamo 基准；token 统计也不等同于物理 KV 读写字节数。</figcaption>
+        </figure>
+      </div>
+      <footer class="slide-source">来源：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference">Agentic Inference · 原文负载分析</a>。图中数值取自该样本，不外推到其他模型与平台。</footer>
+    </section>
+
+    <section class="slide" id="dynamo-background" aria-labelledby="dynamo-heading" data-topic="Dynamo 背景">
+      <header class="slide-heading"><p class="eyebrow">背景 03 / 项目定位</p><h2 id="dynamo-heading">Dynamo：<em>推理引擎之上的分布式编排层</em></h2><p class="lead">开源、数据中心级推理框架：Rust 承担运行时与高性能组件，Python 提供后端集成与扩展。</p></header>
+      <div class="two-col">
+        <div class="copy">
+          <ul class="points">
+            <li><strong>不替代 vLLM / SGLang / TensorRT-LLM</strong><span>引擎负责模型执行、batching、attention kernel 和本地 KV；Dynamo 把多个引擎实例组织为一个服务系统。</span></li>
+            <li><strong>关注跨 worker 的协调问题</strong><span>Frontend 接入，Router 选择目标，缓存集成与 NIXL 连接 KV 数据路径，Planner 根据服务目标调整资源池。</span></li>
+            <li><strong>从单机服务扩展到集群服务</strong><span>支持聚合式与 P/D 分离部署；在 Kubernetes 上由 Operator 管理部署资源，Planner 提供副本数决策。</span></li>
+          </ul>
+          <div class="takeaway"><b>适用边界</b>单 GPU、低并发场景可能只需推理引擎。Dynamo 的主要价值在跨节点路由、状态复用和资源协同。</div>
+        </div>
+        <figure class="diagram">
+          <svg viewBox="0 0 600 370" role="img" aria-labelledby="dynamo-stack-title">
+            <title id="dynamo-stack-title">上层 Agent 框架控制任务，Dynamo 负责分布式推理编排，下层引擎负责模型计算；Kubernetes 承载部署</title>
+            <rect x="30" y="20" width="540" height="53" rx="10" class="box white"/><text x="300" y="52">Agent Harness：任务、工具、会话与依赖</text>
+            <path d="M300 78v21" class="line"/>
+            <rect x="30" y="105" width="540" height="117" rx="12" class="box teal"/>
+            <text x="300" y="137" class="bold">Dynamo · 分布式推理编排</text>
+            <text x="300" y="169">Frontend · KV Router · Planner</text>
+            <text x="300" y="200" class="small">DistributedRuntime · 缓存集成 · NIXL 传输</text>
+            <path d="M300 227v19" class="line"/>
+            <rect x="30" y="252" width="172" height="49" rx="8" class="box lime"/><text x="116" y="283">vLLM</text>
+            <rect x="214" y="252" width="172" height="49" rx="8" class="box lime"/><text x="300" y="283">SGLang</text>
+            <rect x="398" y="252" width="172" height="49" rx="8" class="box lime"/><text x="484" y="283">TensorRT-LLM</text>
+            <text x="300" y="346" class="small">GPU / 网络 / 存储 · 本地部署或 Kubernetes + Operator</text>
+          </svg>
+          <figcaption>Harness 管工作流，Dynamo 管分布式推理，引擎管模型执行。MCP / A2A 不是 KV 路由协议。</figcaption>
+        </figure>
+      </div>
+      <footer class="slide-source">依据：<a href="https://github.com/ai-dynamo/dynamo/blob/17d644feb3edf590506b345dc8ed81ce9bb29306/README.md">Dynamo 项目定位</a> · <a href="https://docs.nvidia.com/dynamo/dev/knowledge-base/concepts/system-architecture/architecture">系统架构</a></footer>
+    </section>
+
+    <section class="slide" id="dynamo-planes" aria-labelledby="planes-heading" data-topic="Dynamo 架构">
+      <header class="slide-heading"><p class="eyebrow">背景 04 / 请求路径与通信平面</p><h2 id="planes-heading">请求、缓存元数据与<em>KV 数据分开传输</em></h2><p class="lead">路由器需要知道 KV 在哪里，但不需要让大块 KV 数据经过 Frontend 中转。</p></header>
+      <div class="two-col">
+        <div class="copy">
+          <ul class="points">
+            <li><strong>请求平面：预处理与定向分发</strong><span>Frontend 校验、应用模板并 tokenize；Router 选 worker，运行时分发 RPC，输出以流式响应返回。</span></li>
+            <li><strong>事件平面：更新索引与负载信号</strong><span>worker 发布 KV 增删事件及遥测，Indexer 维护缓存视图。当前默认请求走 TCP、事件走 ZMQ，均可选择 NATS。</span></li>
+            <li><strong>发现与 KV 数据路径各司其职</strong><span>运行时按 namespace / component / endpoint 发现服务；本地常用 etcd，K8s 使用资源发现。P/D 的 KV 由后端协调直接传输。</span></li>
+          </ul>
+          <div class="takeaway"><b>设计含义</b>缓存索引是元数据视图，不是 KV 存储。事件延迟或丢失可能让路由估计与实际命中出现差异。</div>
+        </div>
+        <figure class="diagram">
+          <svg viewBox="0 0 600 370" role="img" aria-labelledby="planes-chart-title">
+            <title id="planes-chart-title">请求经 Frontend 与 Router 到达工作节点，KV 事件异步反馈 Indexer；Prefill 与 Decode 间直接传输 KV</title>
+            <rect x="27" y="29" width="160" height="60" rx="10" class="box white"/><text x="107" y="55" class="bold">Frontend</text><text x="107" y="78" class="small">模板 / tokenize</text>
+            <path d="M193 60h40" class="arrow"/><text x="230" y="67" class="arrowhead">›</text>
+            <rect x="245" y="29" width="151" height="60" rx="10" class="box teal"/><text x="320" y="65">Router</text>
+            <path d="M320 97v40" class="line"/>
+            <rect x="245" y="147" width="151" height="63" rx="10" class="box lime"/><text x="320" y="185">Prefill worker</text>
+            <path d="M405 179h33" class="line"/>
+            <rect x="448" y="147" width="128" height="63" rx="10" class="box lime"/><text x="512" y="185">Decode</text>
+            <text x="417" y="239" class="small">KV 数据：NIXL / 后端传输</text>
+            <rect x="27" y="147" width="159" height="63" rx="10" class="box white"/><text x="106" y="185">KV Indexer</text>
+            <path d="M239 178h-48M106 140V109h188" class="line dashed"/>
+            <text x="111" y="239" class="small">虚线：KV 事件 / 索引</text>
+            <rect x="27" y="277" width="549" height="66" rx="10" class="box muted"/><text x="301" y="305">Discovery：成员注册与变更</text><text x="301" y="331" class="small">Planner → 期望副本数 → Operator / 部署系统</text>
+          </svg>
+          <figcaption>压缩后的逻辑图；P/D 调度还包含 Prefill 返回传输元数据、再路由 Decode 的步骤。</figcaption>
+        </figure>
+      </div>
+      <footer class="slide-source">依据：<a href="https://github.com/ai-dynamo/dynamo/blob/17d644feb3edf590506b345dc8ed81ce9bb29306/docs/fern/pages/developer-guide/knowledge-base/concepts/system-architecture/architecture.md">Architecture · DistributedRuntime / Communication Planes</a></footer>
+    </section>
+
+    <section class="slide" id="kv-budget" aria-labelledby="budget-heading" data-topic="性能基础">
+      <header class="slide-heading"><p class="eyebrow">背景 05 / 时间预算与显存预算</p><h2 id="budget-heading">KV 不只是加速缓存，<em>也是并发容量约束</em></h2><p class="lead">长上下文提高复用收益，也增加常驻状态；命中率高不代表 Decode 没有内存压力。</p></header>
+      <div class="two-col">
+        <div class="copy">
+          <ul class="points">
+            <li><strong>时间：看任务关键路径上的累计等待</strong><span>排队、未命中 Prefill、KV 搬运、Decode 与工具等待共同构成任务时延；可重叠部分不能简单重复相加。</span></li>
+            <li><strong>容量：标准全注意力 KV 的近似式</strong><span><code>M_KV ≈ 2 × L × H_KV × D × S × b</code>。L 为层数，H_KV 为 KV 头数，D 为头维度，S 为序列长度，b 为每元素字节数；2 对应 K 与 V。</span></li>
+            <li><strong>示例：128K 上下文可占 16 GiB</strong><span>L=32、H_KV=8、D=128、b=2、S=131072 时，单序列逻辑 KV 约 16 GiB；四个不共享的序列约 64 GiB。</span></li>
+          </ul>
+          <div class="takeaway"><b>估算边界</b>不含模型权重、工作区和碎片；TP 分片、前缀共享、量化、滑窗及 MLA 会改变实际每卡占用。</div>
+        </div>
+        <figure class="diagram">
+          <svg viewBox="0 0 600 370" role="img" aria-labelledby="memory-chart-title">
+            <title id="memory-chart-title">按示例模型估算，序列长度从 32K 到 128K，逻辑 KV 从 4 GiB 增至 16 GiB；共享只节省相同前缀部分</title>
+            <text x="30" y="36" class="svg-kicker">示例模型：128 KiB / token · 非硬件实测</text>
+            <text x="70" y="98">32K</text><rect x="125" y="70" width="95" height="42" rx="6" class="box teal"/><text x="259" y="98">4 GiB</text>
+            <text x="70" y="167">64K</text><rect x="125" y="139" width="190" height="42" rx="6" class="box teal"/><text x="355" y="167">8 GiB</text>
+            <text x="70" y="236">128K</text><rect x="125" y="208" width="380" height="42" rx="6" class="box lime"/><text x="543" y="236" class="small">16 GiB</text>
+            <rect x="30" y="290" width="540" height="56" rx="10" class="box white"/><text x="300" y="325">前缀共享节省重复块，但各分支新增 KV 仍需空间</text>
+          </svg>
+          <figcaption>K 表示 1024 token；图为给定模型参数的逻辑容量推导，不等于某个 Dynamo 部署的显存需求。</figcaption>
+        </figure>
+      </div>
+      <footer class="slide-source">通用 Transformer KV 容量估算；系统取舍参见 <a href="https://docs.nvidia.com/dynamo/dev/knowledge-base/concepts/system-architecture/disaggregated-serving">Disaggregated Serving · Decode memory tradeoff</a>。</footer>
+    </section>
+
+    <section class="slide" id="s03" aria-labelledby="title03" data-topic="接入层">
+      <header class="slide-heading"><p class="eyebrow">优化 01 / 接入层 <span class="status ready">已支持 + 应用侧实践</span></p><h2 id="title03">协议归一化与<em>确定性的 Prompt 渲染</em></h2><p class="lead">API 兼容解决接入；稳定的模板、工具序列与 token 前缀，才是缓存复用的前提。</p></header>
+      <div class="two-col">
+        <div class="copy">
+          <ul class="points">
+            <li><strong>统一入口，保留工具与推理结构</strong><span>Dynamo 接入 Chat Completions、Responses、Messages；后两者使用类型化内容块，仍需正确的模型模板及工具 / reasoning parser。</span></li>
+            <li><strong>固定前缀，增量追加</strong><span>稳定系统提示、tool schema 及顺序，把动态检索结果放到后段；避免时间戳或工具重排让前缀从头失配。</span></li>
+            <li><strong>以实际 token 序列验证命中</strong><span>渲染参数、特殊 token、历史思考块剥离都可能改变输入；相同文本语义不保证同一 token 前缀，更不保证相同 KV。</span></li>
           </ul>
           <div class="takeaway"><b>收益</b>减少协议适配摩擦，也为后续路由与缓存复用打好基础。</div>
         </div>
@@ -124,15 +243,15 @@
     </section>
 
     <section class="slide" id="s04" aria-labelledby="title04" data-topic="接入层">
-      <header class="slide-heading"><p class="eyebrow">优化 02 / 请求信号 <span class="status ready">已支持 · 按需启用</span></p><h2 id="title04">让平台知道：<em>这次要忙多久</em></h2><p class="lead">Agent 掌握任务意图，推理平台掌握资源；用轻量提示把两端连接起来。</p></header>
+      <header class="slide-heading"><p class="eyebrow">优化 02 / 请求信号 <span class="status ready">已支持 · 按需启用</span></p><h2 id="title04">Agent Hints：<em>从任务意图到负载估计</em></h2><p class="lead">nvext.agent_hints 连接 Harness 与调度系统；它是估计与策略信号，不是资源预留协议。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>预估输出长度：osl</strong><span>短查询与长报告对资源的占用不同。告诉路由器预计生成多少 token，有助于资源估计。</span></li>
-            <li><strong>附带重要性与预热意图</strong><span>priority 表示优先级；speculative_prefill 请求下一轮前缀预热，后面分别展开。</span></li>
-            <li><strong>估计要用真实反馈校准</strong><span>按任务类型统计实际输出长度，逐步修正；提示是估计，不是完成时限或资源保证。</span></li>
+            <li><strong>osl：预计输出 token 数</strong><span>用于资源估计；启用输出块跟踪后，可结合生成进度对输出块及非共享 prompt 后缀的负载权重衰减，共享前缀仍保留完整权重。</span></li>
+            <li><strong>priority 与 speculative_prefill</strong><span>前者影响支持该提示的排队 / 后端策略，后者预热下一轮可预测前缀；两者分别优化排队顺序与后续 Prefill。</span></li>
+            <li><strong>身份与隔离是独立维度</strong><span><code>X-Dynamo-Session-ID</code> 标识会话，<code>cache_salt</code> 划分缓存域；不能把会话亲和性当作租户隔离。</span></li>
           </ul>
-          <div class="takeaway"><b>收益</b>不再把“生成一句话”和“写一份报告”当成同样大小的工作。</div>
+          <div class="takeaway"><b>实践</b>按任务类型校准 OSL 分布；输出块跟踪需显式启用，不能仅发送 osl 就假设所有负载模型已生效。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="hints-title">
@@ -156,13 +275,13 @@
     </section>
 
     <section class="slide" id="s05" aria-labelledby="title05" data-topic="路由层">
-      <header class="slide-heading"><p class="eyebrow">优化 03 / KV 感知路由 <span class="status ready">已支持 · 需缓存信息</span></p><h2 id="title05">把请求交给<em>“读过材料的人”</em></h2><p class="lead">负载均衡不只是“哪台空闲”，还要看“哪台已经有这段上下文”。</p></header>
+      <header class="slide-heading"><p class="eyebrow">优化 03 / KV 感知路由 <span class="status ready">已支持 · 需缓存信息</span></p><h2 id="title05">KV-aware Placement：<em>局部性与负载平衡</em></h2><p class="lead">根据可复用前缀与预期活跃负载选 worker，而不是仅按连接数或请求数均衡。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>维护缓存位置索引</strong><span>路由器根据 worker 的 KV 信息，判断各节点能复用多少输入前缀。</span></li>
-            <li><strong>同时算缓存账与排队账</strong><span>缓存命中可减少 Prefill；但节点太忙时，换一台可能更快，不能只追求命中率。</span></li>
-            <li><strong>让长会话持续受益</strong><span>工具返回后的下一轮尽量复用已有历史，而不是在另一台 GPU 上重新“读全文”。</span></li>
+            <li><strong>Indexer：按前缀查询缓存重叠</strong><span>请求被分块、哈希，结合 worker 的 KV 增删事件形成可复用前缀视图；可区分 device / host / disk 等驻留层。</span></li>
+            <li><strong>负载跟踪：计入已分配与当前请求</strong><span>活跃 Prefill 工作量、Decode KV 块及可选活跃请求数一起参与代价评估，避免缓存热点吸走全部流量。</span></li>
+            <li><strong>选择与调度：两个不同阶段</strong><span>先做候选资格过滤与队列调度，再评分选 worker；缓存命中多不等于一定可以立即接纳。</span></li>
           </ul>
           <div class="takeaway"><b>选择原则</b>综合等待、补算和生成负载，尽量缩短实际响应时间。</div>
         </div>
@@ -188,16 +307,45 @@
       <footer class="slide-source">依据：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#kv-aware-placement">KV-Aware Placement</a> · 源码：<a href="https://github.com/ai-dynamo/dynamo/blob/17d644feb3edf590506b345dc8ed81ce9bb29306/lib/router/kv-router/README.md">KV Router</a></footer>
     </section>
 
+    <section class="slide" id="routing-cost" aria-labelledby="cost-heading" data-topic="路由机制">
+      <header class="slide-heading"><p class="eyebrow">机制展开 / 默认路由代价模型</p><h2 id="cost-heading">缓存收益，如何进入<em>worker 评分</em></h2><p class="lead">用 block-equivalent 工作量表达压力；代价是排序代理，不是毫秒级延迟预测。</p></header>
+      <div class="two-col">
+        <div class="copy">
+          <div class="formula"><span>普通路径的默认代价结构</span><code>C = α · max(0, P + I − H) + D + β · R</code></div>
+          <ul class="points">
+            <li><strong>Prefill：未命中部分才需补算</strong><span>P 为已有 Prefill 块，I 为当前输入块，H 为分层缓存加权抵扣；α 对应 <code>prefill_load_scale</code>。</span></li>
+            <li><strong>Decode：活跃 KV 与批大小压力</strong><span>D 为已有加本次请求的预计活跃块；R 为当前活跃请求数，β 为可选权重，默认 0。</span></li>
+            <li><strong>选择：最低代价或带温度采样</strong><span><code>router_temperature=0</code> 选最低代价，同分随机；非零温度对归一化代价做 softmax 采样。</span></li>
+          </ul>
+        </div>
+        <figure class="diagram">
+          <svg viewBox="0 0 600 370" role="img" aria-labelledby="cost-chart-title">
+            <title id="cost-chart-title">示例输入 100 块，α 为 1，β 为 0；A 代价为 280，B 为 160，C 为 200，选择 B</title>
+            <text x="30" y="35" class="svg-kicker">算例：I = 100，α = 1，β = 0</text>
+            <text x="78" y="89" class="bold">节点</text><text x="201" y="89" class="bold">P</text><text x="315" y="89" class="bold">H</text><text x="422" y="89" class="bold">D</text><text x="527" y="89" class="bold">代价</text>
+            <path d="M30 104h540" class="line"/>
+            <text x="78" y="144">A</text><text x="201" y="144">90</text><text x="315" y="144">90</text><text x="422" y="144">180</text><text x="527" y="144">280</text>
+            <rect x="30" y="164" width="540" height="52" rx="8" class="box selected"/>
+            <text x="78" y="197">B ✓</text><text x="201" y="197">10</text><text x="315" y="197">80</text><text x="422" y="197">130</text><text x="527" y="197">160</text>
+            <text x="78" y="254">C</text><text x="201" y="254">0</text><text x="315" y="254">0</text><text x="422" y="254">100</text><text x="527" y="254">200</text>
+            <rect x="30" y="290" width="540" height="53" rx="9" class="box white"/><text x="300" y="323">B：少量补算 + 较低活跃负载，综合代价最低</text>
+          </svg>
+          <figcaption>人工构造算例，单位为块等价工作量；H 已含缓存层级权重，不是未经处理的命中块数。</figcaption>
+        </figure>
+      </div>
+      <footer class="slide-source">依据：<a href="https://docs.nvidia.com/dynamo/dev/knowledge-base/modular-components/router/routing-concepts#cost-calculation">Cost Calculation</a> · 源码：<a href="https://github.com/ai-dynamo/dynamo/blob/17d644feb3edf590506b345dc8ed81ce9bb29306/lib/router/worker-selection/src/reference_picker.rs">最低代价与 softmax 选择</a>。实验性条件分离路径存在例外。</footer>
+    </section>
+
     <section class="slide" id="s06" aria-labelledby="title06" data-topic="路由层">
-      <header class="slide-heading"><p class="eyebrow">优化 04 / 跨层优先级 <span class="status config">依赖队列策略与后端配置</span></p><h2 id="title06">让关键路径<em>先走一步</em></h2><p class="lead">用户正等着的分支，不应始终排在后台批处理之后。</p></header>
+      <header class="slide-heading"><p class="eyebrow">优化 04 / 跨层优先级 <span class="status config">依赖队列策略与后端配置</span></p><h2 id="title06">跨层调度：<em>优先级、时限与公平性</em></h2><p class="lead">优先级决定等待次序，队列类别管理流量竞争；两者都不等同于引擎执行抢占。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>Agent 标注“谁更重要”</strong><span>用 priority 传递重要性，Dynamo 对外统一为数值越高越重要，并转换各后端的语义。</span></li>
-            <li><strong>路由排队与引擎排队一起考虑</strong><span>启用匹配的路由队列策略及引擎优先级调度，避免前一站加急、后一站又普通排队。</span></li>
-            <li><strong>不要把加急当成无限插队</strong><span>为普通流量保留服务空间，观察尾延迟；优先级不等于抢占所有正在运行的请求。</span></li>
+            <li><strong>priority / strict_priority 的作用域不同</strong><span>priority 是跨层软优先级，Dynamo 统一数值方向；strict_priority 是支持它的路由等待队列档位，不改变后端优先级。</span></li>
+            <li><strong>队列策略决定如何使用提示</strong><span>FCFS / WSPT 支持优先级调整；EDF 按截止时间排序。类别间可用加权 DRR 分配调度额度，减少低优先级饥饿。</span></li>
+            <li><strong>后端必须显式开启对应能力</strong><span>SGLang 用 <code>--enable-priority-scheduling</code>，vLLM 用 <code>--scheduling-policy priority</code>；缓存淘汰仍需另行配置。</span></li>
           </ul>
-          <div class="takeaway"><b>边界</b>当前 FCFS / WSPT 队列可利用 priority；EDF 按截止时间排序，不因该提示重排。</div>
+          <div class="takeaway"><b>过载处理</b>配置 busy threshold、队列上限与时限；SLO 是目标，不是保证。必须同时测普通流量尾延迟与拒绝率。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="priority-title">
@@ -222,15 +370,15 @@
     </section>
 
     <section class="slide" id="s07" aria-labelledby="title07" data-topic="路由层">
-      <header class="slide-heading"><p class="eyebrow">优化 05 / 场景化路由 <span class="status config">策略可配置 / 可扩展</span></p><h2 id="title07">不同的 Agent，<em>不必走同一条路</em></h2><p class="lead">先用通用策略建立基线，再针对真实瓶颈定制，而不是一开始就上复杂算法。</p></header>
+      <header class="slide-heading"><p class="eyebrow">优化 05 / 场景化路由 <span class="status config">策略可配置 / 可扩展</span></p><h2 id="title07">按会话结构选择<em>亲和、均衡与容量策略</em></h2><p class="lead">Dynamo 提供内置 worker-selection 策略与扩展接口；先区分准入约束与评分偏好。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>长会话：关注亲和性</strong><span>尽量回到已有上下文的节点；同时考虑节点故障、容量不足和热点问题。</span></li>
-            <li><strong>并行子任务：关注分散与共享</strong><span>避免所有子 Agent 堆在同一节点；让负载分散，同时尽可能复用公共前缀。</span></li>
-            <li><strong>超长上下文：先确认能装下</strong><span>把 KV 容量和输出长度纳入决策；必要时自定义筛选与评分，再比较效果。</span></li>
+            <li><strong>长会话：sticky placement 降低迁移</strong><span><code>dynamo-sticky-min-load</code> 首轮选低负载节点，后续按会话绑定；绑定后不再按实时负载重选，需注意热点。</span></li>
+            <li><strong>并行分支：局部性不能压倒均衡</strong><span><code>dynamo-two-tier-cost-fn</code> 在明显负载失衡时优先均衡，否则偏向 device KV 命中；阈值应按并发形态校准。</span></li>
+            <li><strong>超长输入：容量约束先于评分</strong><span>利用可用 KV、长度估计与准入策略限制并发。定制策略可替换评分 / 选择环节，不应绕过成员发现与负载记账。</span></li>
           </ul>
-          <div class="takeaway"><b>实施建议</b>通过策略配置或扩展接口落地；在线学习路由是可选方案，不是默认能力。</div>
+          <div class="takeaway"><b>扩展路径</b>原文展示 KvRouter Python 接口及 NAT 在线学习案例；当前也有策略 YAML 与 Rust 插件。先 A/B 内置策略，再考虑定制。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="strategy-title">
@@ -249,17 +397,17 @@
           <figcaption>这些是策略取向，可组合使用；不是三种互斥的固定产品模式。</figcaption>
         </figure>
       </div>
-      <footer class="slide-source">依据：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#agentic-workload-routing-strategies">Agentic Workload Routing Strategies</a> · 源码：<a href="https://github.com/ai-dynamo/dynamo/blob/17d644feb3edf590506b345dc8ed81ce9bb29306/lib/router/worker-selection/src/policy.rs">策略扩展</a></footer>
+      <footer class="slide-source">依据：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#agentic-workload-routing-strategies">场景化路由</a> · <a href="https://docs.nvidia.com/dynamo/dev/knowledge-base/modular-components/router/configuration-and-tuning#worker-selection-policies">内置策略</a> · 源码：<a href="https://github.com/ai-dynamo/dynamo/blob/17d644feb3edf590506b345dc8ed81ce9bb29306/lib/router/worker-selection/src/policy.rs">策略扩展</a></footer>
     </section>
 
     <section class="slide" id="s08" aria-labelledby="title08" data-topic="计算与缓存">
-      <header class="slide-heading"><p class="eyebrow">优化 06 / 下一轮预热 <span class="status ready">已支持 · 需显式启用</span></p><h2 id="title08">等工具时，<em>先准备下一轮</em></h2><p class="lead">利用已有信息预热可预测前缀，把一部分准备工作从关键路径上移走。</p></header>
+      <header class="slide-heading"><p class="eyebrow">优化 06 / 下一轮预热 <span class="status ready">已支持 · 需显式启用</span></p><h2 id="title08">Speculative Prefill：<em>把准备工作移出关键路径</em></h2><p class="lead">预热可预测的下一轮前缀，以额外计算换取工具返回后的更低首 token 延迟。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>当前回复结束后开始准备</strong><span>speculative_prefill 让平台根据已完成的对话构造下一轮前缀，提前做预填充。</span></li>
-            <li><strong>工具返回后接着处理新增内容</strong><span>若实际请求前缀兼容且缓存还在，就不必等下一轮到达后才做全部准备。</span></li>
-            <li><strong>只预热可预测、值得预热的部分</strong><span>未知工具结果不能提前算；预热错误会浪费算力，高负载时需要限制额外工作。</span></li>
+            <li><strong>完成当前轮后，渲染预测前缀</strong><span>实现累积当前回复、追加到历史，再通过 formatter / tokenizer 构造下一轮输入；预热请求使用 <code>max_tokens=1</code>。</span></li>
+            <li><strong>命中取决于下一轮渲染的一致性</strong><span>工具定义、tool choice、response format 和模板参数需兼容；历史思考块剥离可能改变 token 前缀。</span></li>
+            <li><strong>通过资源约束控制投机成本</strong><span>源码限制预处理并发并设置超时 / 取消。评估预热命中率、浪费 token 与前台延迟，避免后台工作反向拖慢请求。</span></li>
           </ul>
           <div class="takeaway"><b>不要混淆</b>这里是提前计算前缀，不是投机解码；也不等同于把远端 KV 自动预取回 GPU。</div>
         </div>
@@ -284,26 +432,26 @@
     </section>
 
     <section class="slide" id="s09" aria-labelledby="title09" data-topic="计算与缓存">
-      <header class="slide-heading"><p class="eyebrow">优化 07 / 分层缓存 <span class="status config">依赖引擎与存储集成</span></p><h2 id="title09">显存是书桌，<em>不是整座图书馆</em></h2><p class="lead">把暂时不用的上下文搬到更便宜的存储层，为正在执行的请求腾出空间。</p></header>
+      <header class="slide-heading"><p class="eyebrow">优化 07 / 分层缓存 <span class="status config">依赖引擎与存储集成</span></p><h2 id="title09">分层 KV：<em>容量、带宽与恢复延迟的交换</em></h2><p class="lead">原文以 HiCache / KVBM 等方案说明多层架构；实际存储层、连接器与回写路径取决于版本和后端。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>热数据放近，冷数据放远</strong><span>GPU 显存承接活跃计算，CPU 内存及本地存储承接更多历史；共享存储进一步扩展容量。</span></li>
-            <li><strong>工具等待期是下沉窗口</strong><span>不必让所有暂停会话一直占满显存；恢复时在搬回与重算之间权衡。</span></li>
-            <li><strong>路由要看缓存在哪一层</strong><span>显存命中与磁盘命中的代价不同。命中不代表零等待，传输带宽也会成为瓶颈。</span></li>
+            <li><strong>HBM → pinned DRAM → NVMe / 远端</strong><span>下沉释放活跃计算所需显存，但增加恢复 I/O；写穿、按需下沉及共享注册不是所有连接器统一的默认行为。</span></li>
+            <li><strong>命中抵扣需要体现层级代价</strong><span>当前路由参考中 host / disk 命中权重默认分别为 0.75 / 0.25；它们是可调评分信用，不是实测速度比例。</span></li>
+            <li><strong>以有效带宽和复用概率决定下沉</strong><span>暂停会话可能恢复，也可能结束。关注 offload / reload 字节数、I/O 排队、恢复命中与前台 TTFT，而非只看存储容量。</span></li>
           </ul>
           <div class="takeaway"><b>能力边界</b>四层是参考架构，不是默认全部连通；按返回时间主动预取的通用钩子，原文仍列为演进方向。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="tiers-title">
             <title id="tiers-title">缓存分成 GPU 显存、CPU 内存、本地 NVMe 和共享存储；向下通常容量更大，向上更接近计算</title>
-            <rect x="177" y="26" width="240" height="60" rx="10" class="box lime"/><text x="297" y="52" class="bold">GPU 显存</text><text x="297" y="74" class="small">桌面 · 当前正在用</text>
+            <rect x="177" y="26" width="240" height="60" rx="10" class="box lime"/><text x="297" y="52" class="bold">GPU / HBM</text><text x="297" y="74" class="small">活跃 KV · 最接近计算</text>
             <path d="M297 90v20" class="line"/>
-            <rect x="142" y="115" width="310" height="60" rx="10" class="box teal"/><text x="297" y="141" class="bold">CPU 内存</text><text x="297" y="163" class="small">书架 · 随时可能再用</text>
+            <rect x="142" y="115" width="310" height="60" rx="10" class="box teal"/><text x="297" y="141" class="bold">CPU / pinned DRAM</text><text x="297" y="163" class="small">主机层缓存 · PCIe / 互联传输</text>
             <path d="M297 179v20" class="line"/>
-            <rect x="106" y="204" width="382" height="60" rx="10" class="box white"/><text x="297" y="230" class="bold">本地 NVMe</text><text x="297" y="252" class="small">资料室 · 保留更多历史</text>
+            <rect x="106" y="204" width="382" height="60" rx="10" class="box white"/><text x="297" y="230" class="bold">本地 NVMe</text><text x="297" y="252" class="small">持有更多块 · 存储 I/O 成本</text>
             <path d="M297 268v20" class="line dashed"/>
-            <rect x="70" y="293" width="454" height="60" rx="10" class="box future"/><text x="297" y="319" class="bold">远端 / 共享存储</text><text x="297" y="341" class="small">公共资料库 · 按部署集成</text>
+            <rect x="70" y="293" width="454" height="60" rx="10" class="box future"/><text x="297" y="319" class="bold">远端 / 共享存储</text><text x="297" y="341" class="small">跨节点可访问 · 网络与存储排队</text>
             <path d="M45 88v184" class="arrow"/><text x="43" y="291" class="small">下沉</text>
             <path d="M555 275V90" class="arrow"/><text x="554" y="69" class="small">恢复</text>
           </svg>
@@ -314,13 +462,13 @@
     </section>
 
     <section class="slide" id="s10" aria-labelledby="title10" data-topic="计算与缓存">
-      <header class="slide-heading"><p class="eyebrow">优化 08 / 跨节点复用 <span class="status config">集成能力 · 非默认保证</span></p><h2 id="title10">公共材料，<em>不必每人抄一份</em></h2><p class="lead">多 Agent 扩散的不应只是请求，还应包括“已经算过的公共上下文”。</p></header>
+      <header class="slide-heading"><p class="eyebrow">优化 08 / 跨节点复用 <span class="status config">集成能力 · 非默认保证</span></p><h2 id="title10">共享前缀：<em>从本地命中到远端可加载</em></h2><p class="lead">将公共前缀的重复 Prefill 转化为 KV 加载，降低多 Agent 首轮冷启动与跨节点迁移成本。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>复用真正相同的公共前缀</strong><span>主 Agent 与子 Agent 共享的系统提示、工具定义，可成为跨 worker 复用的候选。</span></li>
-            <li><strong>从“只找本地”走向“查到后搬过来”</strong><span>集成共享缓存或节点间传输后，可用加载代替重复 Prefill；路由需计入搬运成本。</span></li>
-            <li><strong>先确认兼容与隔离</strong><span>模型、KV 格式、连续前缀与访问域必须兼容；不同租户不能为了命中率随意共享。</span></li>
+            <li><strong>区分“已经持有”与“能够获取”</strong><span>device 命中直接复用；共享层或 peer 命中还需要搬运与加载。当前 <code>kvcr</code> 策略可对 KV fetch hint 候选计入信用。</span></li>
+            <li><strong>P/D 多轮存在新增 KV 的归属问题</strong><span>本轮 Decode 生成的新 KV 不一定在下轮 Prefill worker 上；共享 / 迁移集成需要同时覆盖初始前缀与新增后缀。</span></li>
+            <li><strong>收益条件：搬运成本低于重算成本</strong><span><code>T_load ≈ 数据量 / 有效带宽 + 固定开销</code>。需计入拓扑、网络拥塞、驻留层与格式兼容，不能按峰值链路带宽推算。</span></li>
           </ul>
           <div class="takeaway"><b>判断门槛</b>加载时间小于重算时间时才值得搬；NIXL 是传输组件，不会自动把所有缓存变成共享池。</div>
         </div>
@@ -338,17 +486,52 @@
           <figcaption>共享后的目标数据流。不是跨任意模型、任意后端的通用 KV 互通保证。</figcaption>
         </figure>
       </div>
-      <footer class="slide-source">依据：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#kv-cache-as-a-shared-resource">共享 KV</a> · 源码：<a href="https://github.com/ai-dynamo/dynamo/blob/17d644feb3edf590506b345dc8ed81ce9bb29306/lib/router/worker-selection/src/shared_cache.rs">共享命中描述</a> · <a href="https://docs.nvidia.com/dynamo/dev/additional-resources/nvidia-request-extensions-nvext#cache-salt-and-tenant-isolation">缓存隔离</a></footer>
+      <footer class="slide-source">依据：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#kv-cache-as-a-shared-resource">共享 KV</a> · <a href="https://docs.nvidia.com/dynamo/dev/knowledge-base/modular-components/router/configuration-and-tuning#configure-the-default-policy">共享层与 kvcr 信用</a> · 源码：<a href="https://github.com/ai-dynamo/dynamo/blob/17d644feb3edf590506b345dc8ed81ce9bb29306/lib/router/worker-selection/src/shared_cache.rs">共享命中描述</a></footer>
     </section>
 
-    <section class="slide" id="s11" aria-labelledby="title11" data-topic="计算与缓存">
-      <header class="slide-heading"><p class="eyebrow">优化 09 / 按价值保留 <span class="status config">部分支持 · 细粒度接口演进中</span></p><h2 id="title11">不是最近用过的，<em>就最值得留下</em></h2><p class="lead">“刚刚生成”与“马上还会用”是两件事，单纯按最近使用时间淘汰并不够。</p></header>
+    <section class="slide" id="prefix-invariants" aria-labelledby="invariants-heading" data-topic="缓存机制">
+      <header class="slide-heading"><p class="eyebrow">机制展开 / 复用的正确性条件</p><h2 id="invariants-heading">缓存命中不等于<em>任意块都能复用</em></h2><p class="lead">标准前缀缓存复用要求连续的上下文链；相同后缀 token 在不同前文下通常产生不同 KV。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>把显存留给高复用价值的内容</strong><span>系统提示和公共工具定义往往多轮复用；暂停中的重要长会话也值得适当保护。</span></li>
-            <li><strong>今天先用请求级优先级</strong><span>SGLang 在启用相应淘汰策略后可利用 priority；不能假设所有后端行为一致。</span></li>
-            <li><strong>更细的控制仍需区分层次</strong><span>Token 区间保留、TTL 与跨存储层生命周期，不等于已有统一的 Dynamo 请求 API。</span></li>
+            <li><strong>块身份包含前缀关系</strong><span>请求按块构建哈希 / 前缀索引，不能把“相同 token 的局部片段”直接当作独立 KV 对象来拼接。</span></li>
+            <li><strong>连续可加载量比总命中量更重要</strong><span><code>SharedCacheHits::loadable_beyond()</code> 从本地前缀末端向后延伸，遇到缺口停止，并考虑最小加载块数。</span></li>
+            <li><strong>复用域还需满足模型与租户约束</strong><span>模型权重、位置 / 模板语义、KV 布局与后端支持需兼容。<code>cache_salt</code> 划分缓存域，但不替代认证授权。</span></li>
+          </ul>
+          <div class="takeaway"><b>指标拆分</b>区分索引命中、连续可加载、实际加载成功与最终 Prefill 节省；不要用一个“命中率”掩盖整条链路。</div>
+        </div>
+        <figure class="diagram">
+          <svg viewBox="0 0 600 370" role="img" aria-labelledby="prefix-chain-title">
+            <title id="prefix-chain-title">请求包含 A B C D E，GPU 有 A B，远端有 C E 但缺 D，因此直接延伸的前缀只有 A B C</title>
+            <text x="30" y="36" class="svg-kicker">示例：每个字母代表依赖前文的 KV 块</text>
+            <text x="69" y="100">请求</text>
+            <rect x="129" y="73" width="74" height="43" rx="6" class="box white"/><text x="166" y="101">A</text>
+            <rect x="215" y="73" width="74" height="43" rx="6" class="box white"/><text x="252" y="101">B</text>
+            <rect x="301" y="73" width="74" height="43" rx="6" class="box white"/><text x="338" y="101">C</text>
+            <rect x="387" y="73" width="74" height="43" rx="6" class="box white"/><text x="424" y="101">D</text>
+            <rect x="473" y="73" width="74" height="43" rx="6" class="box white"/><text x="510" y="101">E</text>
+            <text x="69" y="174">GPU</text>
+            <rect x="129" y="146" width="160" height="43" rx="6" class="box lime"/><text x="209" y="174">A + B</text>
+            <text x="69" y="248">远端</text>
+            <rect x="301" y="220" width="74" height="43" rx="6" class="box teal"/><text x="338" y="248">C</text>
+            <rect x="387" y="220" width="74" height="43" rx="6" class="box amber"/><text x="424" y="248">缺失</text>
+            <rect x="473" y="220" width="74" height="43" rx="6" class="box muted"/><text x="510" y="248">E</text>
+            <rect x="30" y="299" width="540" height="47" rx="9" class="box selected"/><text x="300" y="329">可直接延伸：A → B → C；不能跳过 D 加载 E</text>
+          </svg>
+          <figcaption>标准连续前缀加载示意，不代表所有引擎都支持非连续 KV 拼接或相同缓存布局。</figcaption>
+        </figure>
+      </div>
+      <footer class="slide-source">源码：<a href="https://github.com/ai-dynamo/dynamo/blob/17d644feb3edf590506b345dc8ed81ce9bb29306/lib/router/worker-selection/src/shared_cache.rs">SharedCacheHits</a> · <a href="https://docs.nvidia.com/dynamo/dev/additional-resources/nvidia-request-extensions-nvext#cache-salt-and-tenant-isolation">Cache salt 与后端隔离边界</a></footer>
+    </section>
+
+    <section class="slide" id="s11" aria-labelledby="title11" data-topic="计算与缓存">
+      <header class="slide-heading"><p class="eyebrow">优化 09 / 按价值保留 <span class="status config">部分支持 · 细粒度接口演进中</span></p><h2 id="title11">缓存保留：<em>从 LRU 到复用价值</em></h2><p class="lead">淘汰策略应考虑下一次复用概率与重算代价，而不只考虑最近访问时间。</p></header>
+      <div class="two-col">
+        <div class="copy">
+          <ul class="points">
+            <li><strong>目标：单位容量的预期计算节省</strong><span>可用“复用概率 × 避免的重算成本 / 占用字节”理解保留价值；这是评估思路，不是 Dynamo 默认淘汰公式。</span></li>
+            <li><strong>现有路径：请求级 priority 透传</strong><span>SGLang 需配置 <code>--radix-eviction-policy priority</code> 才启用对应缓存淘汰；调度优先级与缓存优先级不是自动等价。</span></li>
+            <li><strong>引擎原语 ≠ 统一的跨层接口</strong><span>TRT-LLM 有 token-range retention 原语，但当前 Dynamo 透传 priority 不支持其优先级淘汰；TTL / 区间保留仍需区分接口层次。</span></li>
           </ul>
           <div class="takeaway"><b>明确限制</b>不要把 nvext.cache_control 当成可用的 TTL 锁定接口；当前不是这套语义。</div>
         </div>
@@ -371,20 +554,20 @@
     </section>
 
     <section class="slide" id="s12" aria-labelledby="title12" data-topic="计算与缓存">
-      <header class="slide-heading"><p class="eyebrow">优化 10 / 生命周期感知 <span class="status future">原文探索方向 · 非通用现成功能</span></p><h2 id="title12">Agent 已经结束，<em>缓存也该知道</em></h2><p class="lead">从“只看一次请求”走向“知道会话何时暂停、恢复、收尾”。</p></header>
+      <header class="slide-heading"><p class="eyebrow">优化 10 / 生命周期感知 <span class="status future">跨层控制仍属探索 / 集成方向</span></p><h2 id="title12">会话生命周期与<em>临时 KV 的回收</em></h2><p class="lead">将 spawn、pause、resume、terminate 和 compaction 事件映射为缓存保留与回收意图。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>子 Agent 结束：回收私有临时 KV</strong><span>若后续不再使用其完整历史，可降低保留价值，避免无意义的存储写入。</span></li>
-            <li><strong>历史压缩：旧上下文退场</strong><span>摘要替代长历史后，旧 KV 不应继续按“活跃会话”长期保护；新摘要前缀可能需要重算。</span></li>
-            <li><strong>公共前缀不能跟着一起删</strong><span>回收必须考虑其他 Agent 是否还在引用，避免一个分支退出影响整个任务。</span></li>
+            <li><strong>终止与压缩产生 ephemeral KV</strong><span>短命子 Agent 的私有历史、compaction 前的旧历史可能不再引用；可降低保留优先级，并避免无收益的跨层写入。</span></li>
+            <li><strong>回收要区分私有后缀与共享前缀</strong><span>同一前缀可能服务多个会话；需要引用 / 所有权信息，不能按 session 结束事件直接删除全部相关块。</span></li>
+            <li><strong>语义检测必须服从真实输入</strong><span>thinking token 只有在后续模板不再使用时才是临时状态；删除仍需参与 attention 的历史会改变模型行为。</span></li>
           </ul>
           <div class="takeaway"><b>演进方向</b>将会话事件与缓存保留、淘汰、下沉连接起来；已有会话标识或亲和性不等于生命周期回收。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="life-title">
             <title id="life-title">主 Agent 继续运行，子 Agent 结束后回收其私有缓存，而共享前缀继续保留；虚线表示探索中的控制路径</title>
-            <text x="30" y="35" class="svg-kicker">只收走这个分支不再需要的“草稿”</text>
+            <text x="30" y="35" class="svg-kicker">私有后缀回收，不影响其他会话的公共前缀</text>
             <rect x="30" y="71" width="157" height="53" rx="9" class="box teal"/><text x="108" y="104">主 Agent</text>
             <path d="M195 97h168" class="line"/><text x="283" y="83" class="small">继续运行</text>
             <rect x="372" y="71" width="197" height="53" rx="9" class="box teal"/><text x="470" y="104">下一轮任务</text>
@@ -402,13 +585,13 @@
     </section>
 
     <section class="slide" id="s13" aria-labelledby="title13" data-topic="资源编排">
-      <header class="slide-heading"><p class="eyebrow">优化 11 / 分离 Prefill 与 Decode <span class="status ready">已支持 · 按负载选择</span></p><h2 id="title13">读长材料与写答案，<em>各用合适的资源</em></h2><p class="lead">避免一个超长输入，让正在生成答案的其他请求一起停下来等。</p></header>
+      <header class="slide-heading"><p class="eyebrow">优化 11 / 分离 Prefill 与 Decode <span class="status ready">已支持 · 按负载选择</span></p><h2 id="title13">P/D 分离：<em>隔离干扰与独立容量规划</em></h2><p class="lead">Prefill 更偏计算密集，Decode 常受内存带宽与 KV 容量影响；最优配置取决于模型、批大小和硬件。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>Prefill 池：集中处理输入</strong><span>承担长上下文与冷缓存补算，关注首字等待和输入处理能力。</span></li>
-            <li><strong>Decode 池：稳定输出 token</strong><span>关注生成间隔和并发会话的 KV 容量，两类资源可以独立调整。</span></li>
-            <li><strong>通过高效传输连接两池</strong><span>以 NIXL 等后端传输路径移动 KV，减少搬运开销；通信仍然有成本。</span></li>
+            <li><strong>避免长 Prefill 干扰 Decode 迭代</strong><span>聚合引擎可用 chunked prefill 平衡干扰；独立 P 池进一步隔离长输入，P / D 可分别选择 batch、TP 和副本数。</span></li>
+            <li><strong>显式承担 KV 传输与池化开销</strong><span>Prefill 返回传输元数据，Decode 协调 KV 加载后生成；NIXL 提供高效数据路径，但链路与调度开销仍需计入 TTFT。</span></li>
+            <li><strong>缓存命中率会改变最佳 P:D 比例</strong><span>高命中减少有效 Prefill，却不等比例减少 Decode KV 容量；固定 GPU 预算下扩 P 池可能挤压 D 池并发。</span></li>
           </ul>
           <div class="takeaway"><b>取舍</b>低并发、短输入或高缓存命中时，聚合部署可能更划算；不要为“分离”而分离。</div>
         </div>
@@ -433,13 +616,13 @@
     </section>
 
     <section class="slide" id="s14" aria-labelledby="title14" data-topic="资源编排">
-      <header class="slide-heading"><p class="eyebrow">优化 12 / 资源弹性 <span class="status ready">Planner 已支持 · 需指标与配置</span></p><h2 id="title14">按瓶颈扩容，<em>不只盯着 GPU 利用率</em></h2><p class="lead">排队太久、生成变慢、缓存装不下，是三种不同的求救信号。</p></header>
+      <header class="slide-heading"><p class="eyebrow">优化 12 / 资源弹性 <span class="status ready">Planner 已支持 · 需指标与配置</span></p><h2 id="title14">Planner：<em>预测容量 + 运行时反馈</em></h2><p class="lead">围绕 TTFT / ITL 服务目标调整推理图，而不是直接以 GPU 利用率作为唯一扩缩容信号。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>用服务目标驱动容量</strong><span>Planner 可结合流量预测、性能模型及运行指标，围绕首 token 时间和生成间隔调整副本。</span></li>
-            <li><strong>把容量加到真正吃紧的地方</strong><span>输入处理堵塞关注 Prefill；生成或 KV 容量吃紧关注 Decode，而不是整组同比例放大。</span></li>
-            <li><strong>扩缩容也要考虑缓存温度</strong><span>新节点是冷的，缩容可能丢掉热缓存；需预留启动时间、平稳迁移并观察恢复成本。</span></li>
+            <li><strong>Throughput-based：预测所需容量</strong><span>流量预测结合引擎性能模型估计满足 TTFT / ITL 的副本数；模型可来自 profiling、worker 自测或性能估算。</span></li>
+            <li><strong>Load-based：根据 FPM 反应式调整</strong><span>消费 ForwardPassMetrics；SLA 目标下用在线回归，其他目标可用队列 / KV 阈值。该模式不要求 KV Router 或离线 profiling。</span></li>
+            <li><strong>组合使用，处理突发与冷启动</strong><span>SLA 模式下预测容量可作为下界，负载反馈做实时调整；规划时仍需考虑模型加载、热缓存损失与缩容排空。</span></li>
           </ul>
           <div class="takeaway"><b>边界</b>Planner 主要优化推理服务指标；成功率、工具等待和完整任务时间仍要由应用侧联合评估。</div>
         </div>
@@ -460,6 +643,48 @@
       <footer class="slide-source">补充依据与源码入口：<a href="https://github.com/ai-dynamo/dynamo/blob/17d644feb3edf590506b345dc8ed81ce9bb29306/components/src/dynamo/planner/README.md">Dynamo Planner · SLA-driven autoscaling</a></footer>
     </section>
 
+    <section class="slide" id="configuration" aria-labelledby="config-heading" data-topic="配置实践">
+      <header class="slide-heading"><p class="eyebrow">实践 / 从机制落到配置</p><h2 id="config-heading">最小配置切片：<em>路由策略 + 请求提示</em></h2><p class="lead">示例基于当前 dev 语义，不是完整部署文件；先启动兼容 worker，并接通发现、KV 事件和指标。</p></header>
+      <div class="config-grid">
+        <article class="code-card">
+          <h3>Frontend · 路由策略 YAML</h3>
+          <pre><code>router:
+  use_kv_events: true
+  router_track_output_blocks: true
+worker_selection:
+  aggregated:
+    type: dynamo-default-cost-fn
+    parameters:
+      overlap_score_credit: 1.0
+      prefill_load_scale: 1.0
+      router_temperature: 0.0
+policy_classes:
+  - name: interactive
+    quantum: 1000
+    queue_policy: fcfs
+    prefill_busy_threshold_frac: 0.8</code></pre>
+          <p>通过 <code>--router-policy-config router.yaml</code> 加载；P/D 部署需按 <code>prefill</code> / <code>decode</code> 角色分别配置。</p>
+        </article>
+        <article class="code-card">
+          <h3>Harness · 合并到正常请求体</h3>
+          <pre><code>{
+  "nvext": {
+    "agent_hints": {
+      "osl": 512,
+      "priority": 5,
+      "speculative_prefill": true
+    },
+    "extra_fields": ["worker_id", "timing"]
+  }
+}</code></pre>
+          <div class="config-flow" aria-label="策略生效链路"><span>队列策略</span><b>→</b><span>worker 评分</span><b>→</b><span>引擎配置</span></div>
+          <p><code>X-Dynamo-Session-ID: demo-session</code> 通过请求头传递；若要引擎端优先级，还需开启后端对应参数。</p>
+        </article>
+      </div>
+      <div class="takeaway full"><b>配置核对</b>数值仅作演示；输出块跟踪属实验性、默认关闭。worker-set 宣告的路由配置会替代 Frontend 默认值，不逐字段合并，须核对最终生效配置。</div>
+      <footer class="slide-source">依据：<a href="https://docs.nvidia.com/dynamo/dev/knowledge-base/modular-components/router/configuration-and-tuning">配置作用域、策略 YAML 与队列类</a> · <a href="https://docs.nvidia.com/dynamo/dev/additional-resources/nvidia-request-extensions-nvext">请求扩展</a>。生产环境还需设置队列容量 / 超时 / 准入策略。</footer>
+    </section>
+
     <section class="slide roadmap-slide" id="s15" aria-labelledby="title15" data-topic="落地路径">
       <header class="slide-heading"><p class="eyebrow">把优化连起来 / 先省重算，再做协同</p><h2 id="title15">按收益与成熟度，<em>分三步落地</em></h2><p class="lead">每次只改变少量变量，用真实多轮任务对比，而不是只跑单请求压测。</p></header>
       <div class="roadmap">
@@ -472,8 +697,8 @@
         <div><span>推理服务表现</span><strong>首字与生成等待</strong><p>TTFT：首 token 等待<br>ITL：相邻 token 的间隔</p></div>
         <div><span>成本是否下降</span><strong>每个成功任务成本</strong><p>计入预热、搬运、存储开销<br>缓存命中率只是解释指标</p></div>
       </div>
-      <div class="takeaway full"><b>公平对比</b>固定模型、硬件、任务集与质量门槛；分别测试冷 / 热缓存、单 / 多 Agent、短 / 长工具等待。</div>
-      <footer class="slide-source">本页为落地建议。原文中的托管 API 观测值与 NAT 特定测试结果，不能直接视为自建平台的预期收益。</footer>
+      <div class="takeaway full"><b>评估矩阵</b>固定模型 / 硬件 / 质量门槛，回放保留时序的会话；扫描冷 / 热缓存、ISL / OSL、分支宽度、工具等待与并发。按会话 / 请求关联排队、路由命中、搬运与引擎时间，并报告拒绝率。</div>
+      <footer class="slide-source">建议按 random / round-robin → KV-aware → 提示与队列 → 分层 / 分离逐项消融。本文托管 API 样本与原文 NAT 测试不作为自建平台的预期收益。</footer>
     </section>
 
     <section class="slide references" id="s16" aria-labelledby="title16" data-topic="参考资料">
@@ -481,8 +706,8 @@
       <div class="reference-grid">
         <article class="reference-card"><span class="ref-id">01 / 主线</span><h3>Agentic 全栈优化</h3><p>接入、路由、共享 KV、选择性保留与生命周期；部分内容是架构方向。</p><a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#agentic-workload-routing-strategies">阅读 NVIDIA Dynamo 原文 ↗</a></article>
         <article class="reference-card"><span class="ref-id">02 / 当前接口</span><h3>Agent Hints 与路由配置</h3><p>用当前参考核对字段、预热行为、队列策略与后端能力，避免只依据概念文章。</p><a href="https://docs.nvidia.com/dynamo/dev/additional-resources/nvidia-request-extensions-nvext">请求扩展 ↗</a><a href="https://docs.nvidia.com/dynamo/dev/knowledge-base/modular-components/router/configuration-and-tuning">路由配置 ↗</a></article>
-        <article class="reference-card"><span class="ref-id">03 / 实现依据</span><h3>ai-dynamo/dynamo</h3><p>路由策略、共享命中表示、下一轮预热、Planner 与分离式部署；正文提供对应入口。</p><a href="https://github.com/ai-dynamo/dynamo/tree/17d644feb3edf590506b345dc8ed81ce9bb29306">浏览源码快照 ↗</a><small>快照：<code>17d644feb3ed</code> · 2026-11-21</small></article>
-        <article class="reference-card"><span class="ref-id">04 / 阅读说明</span><h3>图示、状态与数据口径</h3><p>所有配图均为原创中文 SVG / HTML 示意；不使用虚构性能曲线，不承诺固定加速倍数。</p><p>参考 dev 文档会持续变化；生产落地以所选版本、引擎配置及集成测试为准。</p></article>
+        <article class="reference-card"><span class="ref-id">03 / 实现依据</span><h3>ai-dynamo/dynamo</h3><p>DistributedRuntime 架构、路由 picker、共享块连续性、预热与 Planner；正文提供对应源码入口。</p><a href="https://github.com/ai-dynamo/dynamo/tree/17d644feb3edf590506b345dc8ed81ce9bb29306">浏览源码快照 ↗</a><small>快照：<code>17d644feb3ed</code> · 2026-11-21</small></article>
+        <article class="reference-card"><span class="ref-id">04 / 数据与适用边界</span><h3>观测、推导、示意分开表达</h3><p>891K / 76K 为原文会话观测；KV 容量为假设参数推导；评分表为人工算例。所有配图为原创 SVG / HTML。</p><p>dev 文档与稳定版本可能不同；配置、后端支持和实验性功能需以所选构建验证，不承诺固定加速倍数。</p></article>
       </div>
       <div class="closing-line"><span>少重算</span><i>+</i><span>少等待</span><i>+</i><span>少浪费</span><b>→ 更快完成真实任务</b></div>
       <footer class="slide-source">离线可阅读，无 CDN、在线字体或图片依赖。外部参考链接需要联网。方向键翻页 · O 总览 · F 全屏 · 浏览器打印可保存 PDF。</footer>
@@ -491,13 +716,13 @@
 
   <footer class="player controls" hidden>
     <div class="progress-track" aria-hidden="true"><div id="progress"></div></div>
-    <div class="player-info"><span id="page-number">01 / 16</span><span id="topic">开场</span></div>
+    <div class="player-info"><span id="page-number">01 / 23</span><span id="topic">开场</span></div>
     <p class="keyboard-hint">← → 翻页 <span>·</span> O 总览 <span>·</span> F 全屏</p>
     <div class="pager"><button id="prev-button" aria-label="上一页">←</button><button id="next-button" aria-label="下一页">→</button></div>
   </footer>
   <dialog id="toc" aria-labelledby="toc-title">
     <div class="dialog-heading"><h2 id="toc-title">演示目录</h2><button id="close-toc" aria-label="关闭目录">✕</button></div>
-    <p>12 个优化点，从请求接入到资源编排</p>
+    <p>负载与 Dynamo 架构 → 12 个优化点 → 配置与评估</p>
     <nav id="toc-links" aria-label="幻灯片目录"></nav>
   </dialog>
   <p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
