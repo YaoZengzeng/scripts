@@ -50,6 +50,9 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
 .points li span { display: block; font-size: clamp(14px, 1.15vw, 17px); line-height: 1.8; color: var(--muted); }
 .takeaway { border-left: 3px solid var(--teal); background: #eaf0e4; padding: 13px 16px; font-size: 13px; line-height: 1.85; }
 .takeaway b { color: var(--teal); margin-right: 9px; }
+.problem-slide .eyebrow, .problem-slide h2 em, .problem-slide .points li::before, .problem-slide .takeaway b { color: #885b26; }
+.problem-slide .takeaway { border-left-color: #b3803e; background: #f3eadb; }
+.problem-slide .diagram { background: #f4efe5; border-color: #e4d9c7; }
 .diagram { margin: 0; background: #edf1e8; border: 1px solid #dfe5d9; border-radius: 18px; padding: 10px 10px 0; overflow: hidden; }
 .diagram svg { width: 100%; height: auto; display: block; }
 figcaption { margin: 0; padding: 13px 15px 16px; color: var(--muted); font-size: 11px; line-height: 1.7; }
@@ -130,6 +133,7 @@ dialog > p { font-size: 12px; color: var(--muted); margin: 12px 0 18px; }
 #toc-links a { text-decoration: none; padding: 10px 12px; border-radius: 6px; display: flex; gap: 16px; font-size: 13px; color: var(--ink); }
 #toc-links a:hover, #toc-links a[aria-current="page"] { background: #e2edcf; }
 #toc-links span { color: var(--teal); font-variant-numeric: tabular-nums; }
+#toc-links .toc-kind { flex: 0 0 66px; font-size: 11px; }
 .sr-only, .skip-link:not(:focus) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .skip-link:focus { position: fixed; top: 8px; left: 8px; z-index: 10; padding: 12px; background: white; }
 .noscript { padding: 15px 5vw; font-size: 14px; background: #e2efca; }

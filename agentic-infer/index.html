@@ -27,9 +27,9 @@
       <div class="cover-copy">
         <p class="eyebrow">NVIDIA DYNAMO / AGENTIC INFERENCE</p>
         <h1 id="title01">Agentic 推理<br>端到端<span>优化</span></h1>
-        <p class="hero-sub">从请求进入 Dynamo，到 KV 的复用与回收：<br>沿三层链路，解决 Agent 特有的推理开销。</p>
+        <p class="hero-sub">面向多轮交互、工具调用与子 Agent 并发的<br>请求处理、路由调度及 KV 生命周期优化。</p>
         <div class="hero-tags"><span>01 · Frontend</span><span>02 · Router</span><span>03 · KV Cache</span></div>
-        <p class="cover-meta">多轮对话 / 工具等待 / 子 Agent 分叉 / 会话结束<br>每个问题对应一项机制，而不是罗列平台能力</p>
+        <p class="cover-meta">技术主线：Frontend → Router → KV Cache Management<br>组织方式：问题分析 → 对应方案 → 实现边界</p>
       </div>
       <figure class="hero-figure">
         <svg viewBox="0 0 560 500" role="img" aria-labelledby="hero-title">
@@ -40,13 +40,13 @@
           <path d="m450 215 12 18 11-19 M247 411l-21 10 19 12 M124 140l12-18-22 3" class="hero-line"/>
           <rect x="179" y="178" width="202" height="133" rx="24" class="hero-core"/>
           <text x="280" y="224" class="hero-label hero-core-label">可复用上下文</text>
-          <text x="280" y="259" class="hero-small hero-core-sub">计算一次，后续多轮读取</text>
+          <text x="280" y="259" class="hero-small hero-core-sub">跨请求前缀复用</text>
           <text x="280" y="288" class="hero-code">KV CACHE</text>
           <rect x="178" y="30" width="204" height="69" rx="16" class="hero-node"/><text x="280" y="72" class="hero-label">Agent 决策</text>
           <rect x="337" y="316" width="190" height="69" rx="16" class="hero-node"/><text x="432" y="358" class="hero-label">模型推理</text>
           <rect x="30" y="316" width="190" height="69" rx="16" class="hero-node"/><text x="125" y="358" class="hero-label">工具执行</text>
           <circle cx="101" cy="218" r="7" class="spark"/><circle cx="365" cy="405" r="7" class="spark"/>
-          <text x="280" y="475" class="hero-small">重点：不要在每次恢复时重新计算完整历史</text>
+          <text x="280" y="475" class="hero-small">优化目标：降低冗余 Prefill 与状态恢复开销</text>
         </svg>
         <figcaption>主线依据：Full-Stack Optimizations for Agentic Inference with Dynamo</figcaption>
       </figure>
@@ -54,15 +54,15 @@
     </section>
 
     <section class="slide" id="s02" aria-labelledby="title02" data-topic="主线">
-      <header class="slide-heading"><p class="eyebrow">一个问题，三层协同</p><h2 id="title02">Agent 的上下文，<em>为什么会被反复重算？</em></h2><p class="lead">以编码 Agent 为例：读仓库 → 调工具 → 修改代码 → 执行测试。每轮新信息不多，却不断携带已有历史。</p></header>
+      <header class="slide-heading"><p class="eyebrow">技术范围 / END-TO-END REQUEST PATH</p><h2 id="title02">Agent 工作负载特征与<em>分层优化范围</em></h2><p class="lead">多轮请求具有长公共前缀、增量输入、工具等待及分支并发等特征，优化目标是降低任务关键路径上的推理与状态管理开销。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>多轮复用：输入长，增量相对小</strong><span>系统提示、工具定义与对话历史形成可复用前缀。原文 42 次调用样本的缓存读写比约 11.7，体现“写一次、读多次”。</span></li>
-            <li><strong>暂停与分叉：上下文不再跟随计算</strong><span>工具等待时前缀可能被淘汰；子 Agent 落到其他 worker 时公共前缀又要重算；分支结束后私有 KV 却仍占空间。</span></li>
-            <li><strong>Dynamo 的职责：把 Agent 意图接到推理系统</strong><span>Harness 管任务与工具；Dynamo 负责请求接入、路由与缓存协同；vLLM / SGLang / TRT-LLM 执行模型并管理引擎 KV。</span></li>
+            <li><strong>输入增量与历史长度不对称</strong><span>系统提示、工具定义及累积历史构成可复用前缀。原文 42 次调用样本的缓存 token 读写比约 11.7，说明跨轮复用占比较高。</span></li>
+            <li><strong>计算活动与状态生命周期解耦</strong><span>工具等待期间会话仍然有效；并行分支可能分布于多个 worker；分支终止后，私有 KV 的保留需求随之变化。</span></li>
+            <li><strong>Harness、Dynamo 与推理引擎的职责边界</strong><span>Harness 管理任务依赖与工具；Dynamo 负责请求接入、路由及缓存协同；vLLM / SGLang / TRT-LLM 执行模型并管理引擎 KV。</span></li>
           </ul>
-          <div class="takeaway"><b>沿链路展开</b>先让请求携带语义，再选对 worker，最后决定 KV 如何共享、保留、预取和回收。</div>
+          <div class="takeaway"><b>问题与方案分组</b>P1：请求语义；P2：放置与调度；P3：KV 可访问性；P4：恢复延迟；P5：保留与回收。各问题后接对应的 S 编号方案。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="layers-title">
@@ -76,22 +76,52 @@
             <rect x="65" y="270" width="470" height="65" rx="10" class="box lime"/><text x="300" y="297" class="bold">03 · KV Cache Management</text><text x="300" y="322" class="small">共享 → 下沉 / 预取 → 保留 / 回收</text>
             <path d="M542 302h34V46" class="line dashed"/><text x="300" y="359" class="small">工具返回 / 子 Agent 新请求 → 再次进入链路</text>
           </svg>
-          <figcaption>11.7 为原文托管 API 会话的缓存 token 读写比，不是 Dynamo 加速倍数。后续只介绍与这条链路相关的架构。</figcaption>
+          <figcaption>11.7 为原文托管 API 会话的缓存 token 读写比，并非 Dynamo 加速倍数；架构范围限定于 Agent 请求与 KV 数据路径。</figcaption>
         </figure>
       </div>
       <footer class="slide-source">主线与术语：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference">Agentic Inference · 引言</a>。Prefill 处理输入并构建 KV；Decode 基于 KV 逐步生成。</footer>
     </section>
 
-    <section class="slide" id="s03" aria-labelledby="title03" data-topic="01 · Frontend">
-      <header class="slide-heading"><p class="eyebrow">01 FRONTEND / 多协议与内容结构 <span class="status ready">已支持</span></p><h2 id="title03">接住交错的<em>思考、工具调用与文本</em></h2><p class="lead">问题：Agent 的一次回复不是单一文本；模型与框架对 reasoning、tool call 的表达不同，转换不当会破坏下一轮历史。</p></header>
+    <section class="slide problem-slide" id="frontend-problem" aria-labelledby="frontend-problem-heading" data-topic="01 · Frontend" data-label="问题 P1">
+      <header class="slide-heading"><p class="eyebrow">问题 P1 / FRONTEND</p><h2 id="frontend-problem-heading">请求接口中的<em>内容语义与任务元数据缺失</em></h2><p class="lead">Agent 请求同时包含结构化交互历史与工作流依赖；协议转换和元数据缺省会分别影响语义一致性与服务端决策。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>多协议归一到共同的处理链路</strong><span>Dynamo 接入 Chat Completions、Responses、Messages；后两者的类型化内容块更直接表达交错输出，前者也支持独立工具调用字段。</span></li>
-            <li><strong>保留内容边界，配套模型解析器</strong><span>前端与 parser 将模型输出还原为工具调用、推理与文本；正确处理调用标识和工具结果，Harness 才能可靠继续执行。</span></li>
-            <li><strong>让下一轮的稳定前缀保持一致</strong><span>应用侧稳定 tool schema、顺序及模板参数；思考块是否保留按模型模板处理，避免本可复用的历史因渲染变化失配。</span></li>
+            <li><strong>跨协议内容表示存在差异</strong><span>reasoning、tool call、调用标识与工具结果的组织方式依赖 API 和模型模板；不完整的转换可能破坏多轮工具调用关联。</span></li>
+            <li><strong>序列化差异降低前缀复用率</strong><span>tool schema 顺序、模板参数或历史渲染变化可能改变 token 序列。语义等价的历史并不必然具有相同的 KV 前缀。</span></li>
+            <li><strong>服务端缺少任务级决策依据</strong><span>仅根据输入 token 难以识别关键分支、预期输出长度和下一轮启动意图；这些信息主要由 Harness 掌握。</span></li>
           </ul>
-          <div class="takeaway"><b>收益与边界</b>内容结构为后续策略提供依据，但“能识别内容块”不代表已自动按块类型实施缓存保留。</div>
+          <div class="takeaway"><b>影响</b>工具调用关联错误、前缀缓存失配，以及调度和负载估计缺少任务信息。对应方案：S1.1 协议归一；S1.2 Agent Hints。</div>
+        </div>
+        <figure class="diagram">
+          <svg viewBox="0 0 600 370" role="img" aria-labelledby="frontend-gap-title">
+            <title id="frontend-gap-title">请求接入存在内容转换和任务元数据两个信息缺口，分别影响历史一致性与调度决策</title>
+            <text x="30" y="35" class="svg-kicker">Harness 信息 → 接口边界 → 服务端影响</text>
+            <rect x="30" y="65" width="240" height="65" rx="10" class="box white"/><text x="150" y="92" class="bold">结构化交互历史</text><text x="150" y="117" class="small">reasoning / tool call / result</text>
+            <rect x="330" y="65" width="240" height="65" rx="10" class="box white"/><text x="450" y="92" class="bold">任务级元数据</text><text x="450" y="117" class="small">依赖关系 / 输出预期 / 续轮意图</text>
+            <path d="M150 136v30M450 136v30" class="line dashed"/>
+            <rect x="30" y="174" width="240" height="54" rx="9" class="box amber"/><text x="150" y="207">转换不完整 / 序列化变化</text>
+            <rect x="330" y="174" width="240" height="54" rx="9" class="box amber"/><text x="450" y="207">未随请求传递</text>
+            <path d="M150 234v30M450 234v30" class="line"/>
+            <rect x="30" y="272" width="240" height="64" rx="9" class="box muted"/><text x="150" y="299">交互语义不一致</text><text x="150" y="323" class="small">历史关联错误 / 前缀失配</text>
+            <rect x="330" y="272" width="240" height="64" rx="9" class="box muted"/><text x="450" y="299">服务决策信息不足</text><text x="450" y="323" class="small">队列排序 / 负载估计受限</text>
+          </svg>
+          <figcaption>两类缺口分别对应内容归一与元数据传递，不要求将工作流编排逻辑迁移到推理服务内部。</figcaption>
+        </figure>
+      </div>
+      <footer class="slide-source">依据：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#multi-protocol-support">Multi-Protocol Support</a> · <a href="https://docs.nvidia.com/dynamo/dev/additional-resources/nvidia-request-extensions-nvext#agent-hints">Agent Hints</a></footer>
+    </section>
+
+    <section class="slide" id="s03" aria-labelledby="title03" data-topic="01 · Frontend" data-label="方案 S1.1">
+      <header class="slide-heading"><p class="eyebrow">方案 S1.1 / FRONTEND · 对应 P1 <span class="status ready">已支持</span></p><h2 id="title03">多协议归一与<em>交互历史一致性</em></h2><p class="lead">通过共同内部表示、模型专用解析器与稳定的历史序列化，保留结构化内容并维持可复用的 token 前缀。</p></header>
+      <div class="two-col">
+        <div class="copy">
+          <ul class="points">
+            <li><strong>多协议映射至共同处理链路</strong><span>Dynamo 接入 Chat Completions、Responses、Messages；后两者以类型化内容块表达交错输出，前者同样支持独立工具调用字段。</span></li>
+            <li><strong>模型专用解析与调用关联维护</strong><span>前端与 parser 将模型输出解析为工具调用、推理和文本；保留调用标识及工具结果关联，维持 Harness 的执行语义。</span></li>
+            <li><strong>稳定公共前缀的序列化过程</strong><span>应用侧固定 tool schema 顺序及模板参数；思考块保留遵循模型模板约束，降低历史渲染变化导致的缓存失配。</span></li>
+          </ul>
+          <div class="takeaway"><b>能力边界</b>内容类型识别提供语义基础，但不等同于按内容类型自动实施 KV 保留策略。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="protocol-title">
@@ -108,84 +138,114 @@
             <rect x="30" y="302" width="366" height="43" rx="8" class="box lime"/><text x="213" y="329">下一轮：稳定历史前缀</text>
             <rect x="404" y="302" width="166" height="43" rx="8" class="box amber"/><text x="487" y="329">新增工具结果</text>
           </svg>
-          <figcaption>先保证工具调用语义正确，再追求前缀复用；token 前缀一致不等于仅文本语义相似。</figcaption>
+          <figcaption>工具调用语义正确性是前置约束；KV 复用要求连续 token 前缀一致，而非仅文本语义相似。</figcaption>
         </figure>
       </div>
       <footer class="slide-source">原文：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#multi-protocol-support">Layer 1 · Multi-Protocol Support</a>。稳定前缀属于应用侧协同实践。</footer>
     </section>
 
-    <section class="slide" id="s04" aria-labelledby="title04" data-topic="01 · Frontend">
-      <header class="slide-heading"><p class="eyebrow">01 FRONTEND / Harness–Orchestrator 接口 <span class="status ready">Agent Hints 已支持</span></p><h2 id="title04">把 Agent 知道的事，<em>告诉推理平台</em></h2><p class="lead">问题：Harness 知道哪条分支正在阻塞任务、下一次是短查询还是长综合，但服务端通常只看见匿名 token 请求。</p></header>
+    <section class="slide" id="s04" aria-labelledby="title04" data-topic="01 · Frontend" data-label="方案 S1.2">
+      <header class="slide-heading"><p class="eyebrow">方案 S1.2 / FRONTEND · 对应 P1 <span class="status ready">Agent Hints 已支持</span></p><h2 id="title04">通过 Agent Hints <em>传递任务级元数据</em></h2><p class="lead">Harness 将关键路径重要性、预期输出长度及续轮预热意图编码为请求扩展，供路由器、引擎与预处理链路使用。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>priority：表达关键路径的重要性</strong><span>为用户正在等待的分支赋予更高优先级，经 Dynamo 传到路由与引擎；数值越高表示越重要。</span></li>
-            <li><strong>osl：预估输出长度，改善负载判断</strong><span>按工具调用或任务类型预测生成 token 数；它是负载估计，不是 max_tokens。输出块跟踪启用后可进一步利用生成进度。</span></li>
-            <li><strong>speculative_prefill：声明下一轮预热意图</strong><span>当前回复完成后，提前计算可预测的下一轮前缀；后文结合工具等待说明它与跨层 KV 预取的区别。</span></li>
+            <li><strong>priority：关键路径重要性</strong><span>为关键依赖分支设置较高优先级，经 Dynamo 传递至路由器与引擎；对外语义统一为数值越高、优先级越高。</span></li>
+            <li><strong>osl：预期输出 token 数</strong><span>按工具调用或任务类型估计生成长度，用于负载估计，而非替代 max_tokens。启用输出块跟踪后，可进一步结合生成进度。</span></li>
+            <li><strong>speculative_prefill：续轮前缀预热</strong><span>当前回复完成后，提前计算可预测的下一轮前缀。该计算路径与已有 KV 的跨层预取不同，详见方案 S4.1。</span></li>
           </ul>
-          <div class="takeaway"><b>接口边界</b>提示不是资源保证，也不能表达所有生命周期事件；会话身份通过请求头传递，不放进 agent_hints。</div>
+          <div class="takeaway"><b>接口边界</b>Hints 不提供资源保证或完整生命周期协议；会话身份通过 <code>X-Dynamo-Session-ID</code> 请求头传递，而非 agent_hints 字段。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="hints-title">
             <title id="hints-title">Agent 通过 priority、osl、speculative_prefill 三个请求提示，分别影响排队、负载估计和下一轮预热</title>
-            <text x="30" y="35" class="svg-kicker">nvext.agent_hints：把任务信息转为服务信号</text>
-            <rect x="30" y="68" width="228" height="65" rx="10" class="box amber"/><text x="144" y="95" class="bold">priority</text><text x="144" y="120" class="small">“这个分支正被等待”</text>
-            <rect x="30" y="155" width="228" height="65" rx="10" class="box lime"/><text x="144" y="182" class="bold">osl</text><text x="144" y="207" class="small">“预计输出 256 token”</text>
-            <rect x="30" y="242" width="228" height="65" rx="10" class="box teal"/><text x="144" y="269" class="small">speculative_prefill</text><text x="144" y="294" class="small">“预热可预测的下一轮”</text>
+            <text x="30" y="35" class="svg-kicker">nvext.agent_hints：任务元数据映射</text>
+            <rect x="30" y="68" width="228" height="65" rx="10" class="box amber"/><text x="144" y="95" class="bold">priority</text><text x="144" y="120" class="small">关键依赖分支的重要性</text>
+            <rect x="30" y="155" width="228" height="65" rx="10" class="box lime"/><text x="144" y="182" class="bold">osl</text><text x="144" y="207" class="small">示例：预期输出 256 token</text>
+            <rect x="30" y="242" width="228" height="65" rx="10" class="box teal"/><text x="144" y="269" class="small">speculative_prefill</text><text x="144" y="294" class="small">可预测前缀的预热意图</text>
             <path d="M264 100h64M264 187h64M264 274h64" class="line"/>
             <rect x="338" y="68" width="232" height="65" rx="10" class="box white"/><text x="454" y="107">路由 / 引擎调度</text>
             <rect x="338" y="155" width="232" height="65" rx="10" class="box white"/><text x="454" y="194">worker 负载估计</text>
             <rect x="338" y="242" width="232" height="65" rx="10" class="box white"/><text x="454" y="281">后台前缀计算</text>
             <text x="300" y="348" class="small">短查询 ≠ 长综合；关键分支 ≠ 后台探索</text>
           </svg>
-          <figcaption>字段的收益取决于路由策略、引擎配置与预测准确性；不是一组无条件生效的加速开关。</figcaption>
+          <figcaption>实际收益取决于路由策略、引擎配置及预测准确性；字段存在不代表所有后端均启用对应策略。</figcaption>
         </figure>
       </div>
       <footer class="slide-source">原文：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#agent-hints-the-harness-orchestrator-interface">Agent Hints</a> · 行为核对：<a href="https://docs.nvidia.com/dynamo/dev/additional-resources/nvidia-request-extensions-nvext#agent-hints">nvext 参考</a></footer>
     </section>
 
-    <section class="slide" id="s05" aria-labelledby="title05" data-topic="02 · Router">
-      <header class="slide-heading"><p class="eyebrow">02 ROUTER / KV-Aware Placement <span class="status ready">已支持 · 需缓存信息</span></p><h2 id="title05">下一轮请求，<em>尽量命中上一轮上下文</em></h2><p class="lead">问题：Agent 每轮只增加少量工具结果；无缓存感知的分发却可能换一台 worker，把长历史重新 Prefill 一遍。</p></header>
+    <section class="slide problem-slide" id="routing-problem" aria-labelledby="routing-problem-heading" data-topic="02 · Router" data-label="问题 P2">
+      <header class="slide-heading"><p class="eyebrow">问题 P2 / ROUTER</p><h2 id="routing-problem-heading">请求级负载均衡与<em>任务级延迟目标不一致</em></h2><p class="lead">Agent 请求具有前缀局部性和分支依赖；仅以请求数量或即时负载选择 worker，无法充分反映任务完成时间。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>先知道“哪个 worker 持有哪些前缀”</strong><span>worker 发布 KV 事件，Indexer 维护块 / 前缀索引；路由器对输入分块、查询各 worker 的可复用重叠。</span></li>
-            <li><strong>把缓存收益与活跃负载一起评分</strong><span>命中前缀抵扣未缓存 Prefill 工作量；同时计入活跃 Prefill 与 Decode 压力，避免将所有续轮挤向同一热点节点。</span></li>
-            <li><strong>目标是减少实际等待，而非只提高命中率</strong><span>高命中但排队很长的 worker 未必最优。保留请求级负载记账，并根据工作负载调整缓存与计算的权重。</span></li>
+            <li><strong>无缓存感知的分发增加冗余 Prefill</strong><span>续轮输入通常复用大部分历史。若目标 worker 缺少前缀 KV，即使即时负载较低，也可能承担显著的历史重算开销。</span></li>
+            <li><strong>统一队列未区分任务依赖</strong><span>关键分支与后台探索共享排队资源，关键请求的等待会沿依赖链传递；局部吞吐最优不等于任务完成时间最短。</span></li>
+            <li><strong>工作负载异构性限制固定策略</strong><span>串行多轮依赖缓存亲和，并行 fan-out 需要控制热点，长上下文受容量约束；单一权重难以覆盖不同任务阶段。</span></li>
           </ul>
-          <div class="takeaway"><b>架构只需记住</b>Indexer 保存“KV 在哪里”的元数据，worker / 存储层才持有 KV 数据；索引命中不保证数据始终可用。</div>
+          <div class="takeaway"><b>决策冲突</b>缓存局部性、排队延迟与任务依赖需联合考虑。对应方案：S2.1 KV 感知放置；S2.2 优先级调度；S2.3 工作负载适配。</div>
+        </div>
+        <figure class="diagram">
+          <svg viewBox="0 0 600 370" role="img" aria-labelledby="routing-gap-title">
+            <title id="routing-gap-title">请求放置同时面临缓存与队列的冲突，关键分支的延迟会影响主 Agent 的任务进度</title>
+            <text x="30" y="35" class="svg-kicker">同一续轮请求的候选位置</text>
+            <rect x="30" y="60" width="250" height="100" rx="10" class="box white"/><text x="155" y="91" class="bold">Worker A</text><text x="155" y="120">高前缀命中</text><text x="155" y="145" class="small">较高队列负载</text>
+            <rect x="320" y="60" width="250" height="100" rx="10" class="box white"/><text x="445" y="91" class="bold">Worker B</text><text x="445" y="120">低前缀命中</text><text x="445" y="145" class="small">较低队列负载</text>
+            <text x="300" y="194" class="small">仅比较命中率或负载，均可能低估完成时间</text>
+            <rect x="30" y="224" width="165" height="60" rx="9" class="box muted"/><text x="112" y="261">后台探索请求</text>
+            <rect x="216" y="224" width="165" height="60" rx="9" class="box amber"/><text x="298" y="261">关键分支排队</text>
+            <path d="M387 254h20" class="line"/>
+            <rect x="415" y="224" width="155" height="60" rx="9" class="box amber"/><text x="492" y="261">主任务阻塞</text>
+            <text x="300" y="337" class="small">目标差异：请求均衡 ≠ 任务关键路径最优</text>
+          </svg>
+          <figcaption>图示用于说明放置与调度的目标冲突，不表示固定代价参数或实测延迟。</figcaption>
+        </figure>
+      </div>
+      <footer class="slide-source">依据：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#kv-aware-placement">KV-Aware Placement</a> · <a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#priority-scheduling">Priority Scheduling</a> · <a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#agentic-workload-routing-strategies">Workload Routing Strategies</a></footer>
+    </section>
+
+    <section class="slide" id="s05" aria-labelledby="title05" data-topic="02 · Router" data-label="方案 S2.1">
+      <header class="slide-heading"><p class="eyebrow">方案 S2.1 / ROUTER · 对应 P2 <span class="status ready">已支持 · 需缓存信息</span></p><h2 id="title05">KV 感知放置：<em>联合评估前缀复用与计算负载</em></h2><p class="lead">基于 worker 的缓存状态及活跃负载估计候选执行代价，降低续轮请求的未缓存 Prefill 工作量，同时限制热点排队。</p></header>
+      <div class="two-col">
+        <div class="copy">
+          <ul class="points">
+            <li><strong>事件驱动的缓存位置索引</strong><span>worker 发布 KV 事件，Indexer 维护块 / 前缀索引；路由器对输入分块，并查询各 worker 的可复用前缀重叠。</span></li>
+            <li><strong>缓存抵扣与活跃负载联合评分</strong><span>命中前缀抵扣未缓存 Prefill 工作量；同时计入活跃 Prefill 与 Decode 压力，降低缓存热点导致的请求集中。</span></li>
+            <li><strong>以执行代价而非单一命中率为目标</strong><span>高命中 worker 的队列成本可能抵消复用收益。通过请求级负载记账及缓存权重调整，适配不同输入长度和并发水平。</span></li>
+          </ul>
+          <div class="takeaway"><b>架构边界</b>Indexer 保存 KV 位置元数据；worker / 存储层保存实际 KV。索引命中仍受状态时效性与后端可加载能力约束。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="route-title">
             <title id="route-title">Agent 续轮在缓存与负载之间选择：A 命中多但繁忙，B 命中多且负载适中，C 空闲但需要重算</title>
             <rect x="31" y="33" width="538" height="49" rx="10" class="box teal"/><text x="300" y="64">续轮请求：长历史 + 新工具结果</text>
             <path d="M300 87v37M120 124h360M120 124v25M300 124v25M480 124v25" class="line"/>
-            <rect x="30" y="149" width="178" height="161" rx="13" class="box white"/><text x="119" y="184" class="bold">节点 A</text><text x="119" y="221">缓存命中多</text><text x="119" y="251" class="warning-text">队列很长</text><rect x="49" y="275" width="140" height="10" rx="5" class="bar-amber"/>
-            <rect x="216" y="145" width="170" height="169" rx="13" class="box selected"/><text x="301" y="184" class="bold">节点 B ✓</text><text x="301" y="221">缓存命中多</text><text x="301" y="251">负载适中</text><rect x="237" y="275" width="74" height="10" rx="5" class="bar-teal"/>
-            <rect x="394" y="149" width="176" height="161" rx="13" class="box white"/><text x="482" y="184" class="bold">节点 C</text><text x="482" y="221">没有缓存</text><text x="482" y="251">空闲但要重算</text><rect x="415" y="275" width="23" height="10" rx="5" class="bar-muted"/>
+            <rect x="30" y="149" width="178" height="161" rx="13" class="box white"/><text x="119" y="184" class="bold">节点 A</text><text x="119" y="221">高前缀命中</text><text x="119" y="251" class="warning-text">高队列负载</text><rect x="49" y="275" width="140" height="10" rx="5" class="bar-amber"/>
+            <rect x="216" y="145" width="170" height="169" rx="13" class="box selected"/><text x="301" y="184" class="bold">节点 B ✓</text><text x="301" y="221">高前缀命中</text><text x="301" y="251">中等负载</text><rect x="237" y="275" width="74" height="10" rx="5" class="bar-teal"/>
+            <rect x="394" y="149" width="176" height="161" rx="13" class="box white"/><text x="482" y="184" class="bold">节点 C</text><text x="482" y="221">无前缀命中</text><text x="482" y="251">低负载 / 需重算</text><rect x="415" y="275" width="23" height="10" rx="5" class="bar-muted"/>
             <text x="300" y="350" class="small">示意：局部性收益与排队代价需要同时考虑</text>
           </svg>
-          <figcaption>不是强制固定 worker；图中状态用于说明权衡，不代表实测或固定路由权重。</figcaption>
+          <figcaption>缓存感知放置不等同于强制会话绑定；图中状态仅表达代价权衡，不代表实测或固定路由权重。</figcaption>
         </figure>
       </div>
       <footer class="slide-source">原文：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#kv-aware-placement">KV-Aware Placement</a> · <a href="https://docs.nvidia.com/dynamo/dev/knowledge-base/modular-components/router/routing-concepts">代价模型</a> · <a href="https://github.com/ai-dynamo/dynamo/blob/17d644feb3edf590506b345dc8ed81ce9bb29306/lib/router/kv-router/README.md">源码入口</a></footer>
     </section>
 
-    <section class="slide" id="s06" aria-labelledby="title06" data-topic="02 · Router">
-      <header class="slide-heading"><p class="eyebrow">02 ROUTER / Priority Scheduling <span class="status config">依赖队列策略与后端配置</span></p><h2 id="title06">让阻塞任务的分支，<em>先获得服务</em></h2><p class="lead">问题：主 Agent 正在等待一个工具决策或子任务结果，却与不紧急的并行探索混在同一队列中。</p></header>
+    <section class="slide" id="s06" aria-labelledby="title06" data-topic="02 · Router" data-label="方案 S2.2">
+      <header class="slide-heading"><p class="eyebrow">方案 S2.2 / ROUTER · 对应 P2 <span class="status config">依赖队列策略与后端配置</span></p><h2 id="title06">关键路径优先级的<em>跨队列传递</em></h2><p class="lead">将 Harness 标注的任务重要性传递至路由队列与引擎调度器，减少关键分支排队对任务完成时间的影响。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>由 Harness 标注关键分支</strong><span>将 <code>priority</code> 附到请求；Dynamo 对外统一为高值更重要，不要求 Harness 理解各引擎优先级数值方向。</span></li>
-            <li><strong>路由排队与引擎排队使用同一意图</strong><span>支持优先级的路由队列先调度重要请求，再向后端转换并透传该信号；不能只在入口加急，进入引擎后又完全忽略。</span></li>
-            <li><strong>策略开启与公平性需要共同考虑</strong><span>FCFS / WSPT 队列可利用 priority，EDF 按截止时间排序；SGLang / vLLM 等后端还需显式开启相应优先级调度。</span></li>
+            <li><strong>请求优先级的统一表示</strong><span>Harness 在请求中设置 <code>priority</code>；Dynamo 统一外部数值方向，并适配不同后端的优先级语义。</span></li>
+            <li><strong>路由与引擎调度的信号一致性</strong><span>支持优先级的路由队列调整请求顺序，并向后端转换、透传该信号，避免仅在入口排序而未影响引擎侧等待。</span></li>
+            <li><strong>队列策略与后端配置约束</strong><span>FCFS / WSPT 队列可利用 priority；EDF 按截止时间排序。SGLang / vLLM 等后端需显式启用相应优先级调度。</span></li>
           </ul>
           <div class="takeaway"><b>边界</b>优先级不等于全局严格执行顺序，也不保证抢占已运行工作；需避免后台探索长期饥饿。缓存淘汰的优先级另在第三层说明。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="priority-title">
             <title id="priority-title">阻塞主 Agent 的请求在路由队列与引擎队列均传递高优先级，后台探索仍需得到服务</title>
-            <text x="30" y="36" class="svg-kicker">同一个 Agent 意图，经过两个调度关口</text>
+            <text x="30" y="36" class="svg-kicker">同一优先级信号的跨调度器传播</text>
             <rect x="28" y="70" width="123" height="49" rx="8" class="box amber"/><text x="89" y="101">阻塞主任务</text>
             <rect x="28" y="141" width="123" height="49" rx="8" class="box white"/><text x="89" y="172">后台探索</text>
             <path d="M161 94h35M161 165h35" class="line"/>
@@ -195,7 +255,7 @@
             <path d="M373 145h36" class="arrow"/><text x="402" y="153" class="arrowhead">›</text>
             <rect x="422" y="60" width="151" height="173" rx="12" class="box teal"/><text x="497" y="95" class="bold">引擎队列</text>
             <rect x="438" y="116" width="119" height="36" rx="6" class="box amber"/><text x="497" y="140">优先处理</text><text x="497" y="191" class="small">适配后端语义</text>
-            <rect x="28" y="278" width="545" height="57" rx="10" class="box lime"/><text x="300" y="313">缩短关键分支等待 → 主 Agent 更早继续执行</text>
+            <rect x="28" y="278" width="545" height="57" rx="10" class="box lime"/><text x="300" y="313">减少关键分支排队 → 缩短任务关键路径</text>
           </svg>
           <figcaption>原文以有效到达时间解释路由优先级；当前具体排序仍受所选队列策略约束。</figcaption>
         </figure>
@@ -203,21 +263,21 @@
       <footer class="slide-source">原文：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#priority-scheduling">Priority Scheduling</a> · 行为与后端要求：<a href="https://docs.nvidia.com/dynamo/dev/additional-resources/nvidia-request-extensions-nvext#priority">priority 参考</a></footer>
     </section>
 
-    <section class="slide" id="s07" aria-labelledby="title07" data-topic="02 · Router">
-      <header class="slide-heading"><p class="eyebrow">02 ROUTER / Agentic Workload Routing Strategies <span class="status config">策略可扩展</span></p><h2 id="title07">串行编码、并行探索、长文研究，<em>路由侧重不同</em></h2><p class="lead">问题：默认的缓存与负载评分看不到完整工作流；一套权重未必同时适合长会话和大量短命子 Agent。</p></header>
+    <section class="slide" id="s07" aria-labelledby="title07" data-topic="02 · Router" data-label="方案 S2.3">
+      <header class="slide-heading"><p class="eyebrow">方案 S2.3 / ROUTER · 对应 P2 <span class="status config">策略可扩展</span></p><h2 id="title07">面向工作负载特征的<em>路由策略适配</em></h2><p class="lead">结合会话连续性、并发分支数量和上下文容量约束，调整缓存亲和、负载分散及 worker 选择策略。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>串行多轮：优先连续复用历史</strong><span>编码 Agent 反复扩展同一前缀，可侧重会话亲和；但需要在故障、热点和容量压力下允许重新放置。</span></li>
-            <li><strong>并行 fan-out：均衡与公共前缀一起考虑</strong><span>子 Agent 短上下文、并发高；不能为追求同一份缓存而全部绑定到一台 worker，应结合共享能力分散负载。</span></li>
-            <li><strong>超长研究任务：容量约束先于偏好</strong><span>完整状态必须能被承载，再比较命中和负载。原文通过 KvRouter 扩展接口，引入会话信息与自定义选择逻辑。</span></li>
+            <li><strong>串行多轮：增强会话亲和</strong><span>编码 Agent 持续扩展相同前缀，可提高缓存局部性的权重；故障、热点或容量压力下仍需支持重新放置。</span></li>
+            <li><strong>并行 fan-out：联合分散与共享</strong><span>高并发分支需要避免单 worker 热点；在共享前缀可加载的条件下分散执行，而非为局部命中强制集中所有分支。</span></li>
+            <li><strong>长上下文：优先满足容量约束</strong><span>先确认候选 worker 可承载任务状态，再比较缓存和负载。KvRouter 扩展接口允许引入会话信息与自定义选择逻辑。</span></li>
           </ul>
           <div class="takeaway"><b>实现入口</b><code>get_potential_loads()</code> 观察候选负载，<code>best_worker()</code> 查询选择，<code>generate()</code> 分发。NAT 在线学习路由是原文扩展示例，不是默认收益保证。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="strategy-title">
             <title id="strategy-title">串行编码侧重亲和，子 Agent 并行探索侧重分散，长文研究先保证 KV 容量，再选择节点</title>
-            <text x="30" y="35" class="svg-kicker">让 Agent 工作流信息参与 worker 选择</text>
+            <text x="30" y="35" class="svg-kicker">基于 Agent 工作负载特征选择 worker</text>
             <rect x="30" y="66" width="149" height="65" rx="10" class="box white"/><text x="104" y="105">串行编码</text>
             <rect x="30" y="162" width="149" height="65" rx="10" class="box white"/><text x="104" y="201">并行探索</text>
             <rect x="30" y="258" width="149" height="65" rx="10" class="box white"/><text x="104" y="297">长文研究</text>
@@ -228,51 +288,51 @@
             <path d="M383 99h28v193h-28M411 195h25" class="line"/>
             <rect x="444" y="142" width="127" height="104" rx="14" class="box selected"/><text x="507" y="182">匹配任务的</text><text x="507" y="213">worker</text>
           </svg>
-          <figcaption>策略是对真实负载特征的取舍，不是按 Agent 名称硬编码三种固定模式。</figcaption>
+          <figcaption>三类任务用于说明策略维度，并非 Dynamo 按 Agent 类型自动启用的三种固定模式。</figcaption>
         </figure>
       </div>
       <footer class="slide-source">原文：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#agentic-workload-routing-strategies">Agentic Workload Routing Strategies</a> · <a href="https://github.com/ai-dynamo/dynamo/blob/17d644feb3edf590506b345dc8ed81ce9bb29306/lib/router/worker-selection/src/policy.rs">策略扩展源码</a></footer>
     </section>
 
-    <section class="slide" id="eviction-problem" aria-labelledby="eviction-heading" data-topic="03 · KV Cache">
-      <header class="slide-heading"><p class="eyebrow">03 KV CACHE / The Problem with Uniform Eviction</p><h2 id="eviction-heading">选对 worker 还不够：<em>需要的 KV 可能已经没了</em></h2><p class="lead">问题：LRU 只看最近访问；它不知道 Agent 正在等工具，也不知道刚结束的分支不会再回来。</p></header>
+    <section class="slide problem-slide" id="kv-access-problem" aria-labelledby="kv-access-heading" data-topic="03 · KV Cache" data-label="问题 P3">
+      <header class="slide-heading"><p class="eyebrow">问题 P3 / KV CACHE · 状态可访问性</p><h2 id="kv-access-heading">KV 局部驻留与<em>跨请求状态复用的冲突</em></h2><p class="lead">Agent 的上下文生命周期跨越工具等待、子任务分叉和相邻轮次，而本地 KV 的可访问范围通常受 worker 与显存容量限制。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>长暂停让高价值前缀变“冷”</strong><span>原文讨论 2–30 秒工具等待：系统提示与会话历史仍会复用，却可能在高流量下被挤出，恢复时重新计算。</span></li>
-            <li><strong>新生成的 KV 不一定有后续价值</strong><span>已结束子 Agent 的私有上下文、被摘要替代的旧历史，可能刚生成不久就失去复用价值。</span></li>
-            <li><strong>缓存管理要回答三个 Agent 问题</strong><span>下一轮去哪里取？工具返回前能否准备好？任务继续或结束时，哪些块应该保留、哪些该回收？</span></li>
+            <li><strong>暂停会话与活跃请求竞争显存</strong><span>工具等待期间 KV 仍可能被后续使用；持续驻留占用 HBM，直接淘汰则将状态保留成本转化为下一轮 Prefill 重算。</span></li>
+            <li><strong>子 Agent 分布导致公共前缀重复计算</strong><span>父任务持有的系统提示与工具定义 KV，可能无法被其他 worker 上的子任务访问；局部缓存命中无法直接扩展为跨节点复用。</span></li>
+            <li><strong>P/D 分离造成跨轮状态位置变化</strong><span>Prefill 产生输入前缀 P，Decode 产生新增后缀 Δ；下一轮 Prefill 需要 P + Δ，但单轮 P→D 传输未覆盖反向复用路径。</span></li>
           </ul>
-          <div class="takeaway"><b>后续主线</b>先让 KV 跨 worker 可用，再减少恢复时的等待，最后按复用价值与会话生命周期决定淘汰。</div>
+          <div class="takeaway"><b>约束</b>已计算 KV 不等同于目标 worker 可访问的 KV。对应方案：S3.1 分层共享；S3.2 公共前缀复用；S3.3 P/D 跨轮状态发布。</div>
         </div>
         <figure class="diagram">
-          <svg viewBox="0 0 600 370" role="img" aria-labelledby="value-title">
-            <title id="value-title">系统提示每轮复用，活跃会话历史后续复用，结束子 Agent 的私有 KV 可能不再复用；LRU 无法区分这些价值</title>
-            <text x="30" y="35" class="svg-kicker">同样是 KV，未来复用价值不同</text>
-            <rect x="30" y="65" width="350" height="60" rx="10" class="box lime"/><text x="205" y="102">系统提示 + 工具定义</text>
-            <rect x="405" y="65" width="165" height="60" rx="10" class="box white"/><text x="487" y="102">几乎每轮用</text>
-            <rect x="30" y="146" width="350" height="60" rx="10" class="box teal"/><text x="205" y="183">活跃会话的递增历史</text>
-            <rect x="405" y="146" width="165" height="60" rx="10" class="box white"/><text x="487" y="183">后续轮次用</text>
-            <rect x="30" y="227" width="350" height="60" rx="10" class="box muted"/><text x="205" y="264">已终止分支的私有历史</text>
-            <rect x="405" y="227" width="165" height="60" rx="10" class="box amber"/><text x="487" y="264">可能不再用</text>
-            <text x="300" y="338" class="small">“刚访问”不等于“更值得保留”；“暂停”不等于“已结束”</text>
+          <svg viewBox="0 0 600 370" role="img" aria-labelledby="access-gap-title">
+            <title id="access-gap-title">工具等待、子任务跨节点执行与 P/D 分离分别造成容量竞争、公共前缀不可访问和跨轮后缀缺失</title>
+            <text x="30" y="35" class="svg-kicker">KV 生产位置与后续消费位置可能不一致</text>
+            <rect x="30" y="62" width="240" height="65" rx="10" class="box white"/><text x="150" y="89" class="bold">暂停会话 KV</text><text x="150" y="115" class="small">驻留 HBM</text>
+            <rect x="330" y="62" width="240" height="65" rx="10" class="box amber"/><text x="450" y="102">活跃请求容量竞争</text>
+            <rect x="30" y="159" width="240" height="65" rx="10" class="box white"/><text x="150" y="186" class="bold">公共前缀 · Worker A</text><text x="150" y="212" class="small">父任务已完成 Prefill</text>
+            <rect x="330" y="159" width="240" height="65" rx="10" class="box amber"/><text x="450" y="186">子任务 · Worker B</text><text x="450" y="212" class="small">无共享路径时重复计算</text>
+            <rect x="30" y="256" width="240" height="65" rx="10" class="box white"/><text x="150" y="283" class="bold">Decode · P + Δ</text><text x="150" y="309" class="small">上一轮生成后缀</text>
+            <rect x="330" y="256" width="240" height="65" rx="10" class="box amber"/><text x="450" y="283">下一轮 Prefill · P</text><text x="450" y="309" class="small">缺少后缀 Δ 的可访问副本</text>
+            <path d="M278 95h44M278 192h44M278 289h44" class="line dashed"/>
           </svg>
-          <figcaption>思考内容是否可回收取决于后续输入与模型模板，不能把所有 reasoning token 都视为临时数据。</figcaption>
+          <figcaption>示意针对缺少共享或卸载路径的部署；缓存位置索引本身不能替代可读副本与实际数据传输。</figcaption>
         </figure>
       </div>
-      <footer class="slide-source">原文：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#the-problem-with-uniform-eviction">The Problem with Uniform Eviction</a></footer>
+      <footer class="slide-source">依据：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#kv-cache-as-a-shared-resource">KV Cache as a Shared Resource · 分层、子 Agent 与 P/D 多轮状态</a></footer>
     </section>
 
-    <section class="slide" id="s09" aria-labelledby="title09" data-topic="03 · KV Cache">
-      <header class="slide-heading"><p class="eyebrow">03 KV CACHE / KV Cache as a Shared Resource <span class="status config">依赖后端与存储集成</span></p><h2 id="title09">把会话 KV，<em>从本地临时状态变成可复用资源</em></h2><p class="lead">问题：所有暂停会话都留在显存会挤占活跃请求；直接淘汰又会丢掉下一轮要用的前缀。</p></header>
+    <section class="slide" id="s09" aria-labelledby="title09" data-topic="03 · KV Cache" data-label="方案 S3.1">
+      <header class="slide-heading"><p class="eyebrow">方案 S3.1 / KV CACHE · 对应 P3 <span class="status config">依赖后端与存储集成</span></p><h2 id="title09">分层存储与<em>共享 KV 资源管理</em></h2><p class="lead">将 KV 保留周期与 GPU 驻留周期解耦，通过分层存储、块注册和加载路径扩展跨请求、跨 worker 的复用范围。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>通过分层存储跨越工具等待期</strong><span>活跃 KV 在 GPU；暂时不用的可下沉到 pinned DRAM、NVMe 或远端层。卸载释放显存，但不必放弃后续复用。</span></li>
-            <li><strong>原文的共享设计：按前缀身份注册块</strong><span>原文以 HiCache / KVBM 说明写穿与共享注册方向：KV 块按 sequence hash 去重，已注册不可变块由可访问该层的 worker 加载。</span></li>
-            <li><strong>索引、存储与传输三者必须配合</strong><span>索引回答“块在哪里”，存储提供可读副本，NIXL 等路径搬运数据；路由知道有缓存，不代表后端已经能读取它。</span></li>
+            <li><strong>按访问阶段调整存储层级</strong><span>活跃 KV 驻留 GPU；暂停会话的 KV 可卸载至 pinned DRAM、NVMe 或远端层，在释放显存的同时保留可恢复副本。</span></li>
+            <li><strong>基于前缀身份的注册与去重</strong><span>原文以 HiCache / KVBM 说明写穿与共享注册方向：按 sequence hash 去重，已注册的不可变块可由具备访问能力的 worker 加载。</span></li>
+            <li><strong>位置发现、数据持久化与传输协同</strong><span>索引维护位置元数据，存储提供可读副本，NIXL 等路径执行数据传输；路由选择必须与后端实际加载能力匹配。</span></li>
           </ul>
-          <div class="takeaway"><b>能力边界</b>四层是原文参考架构，不是所有部署默认全部打通；写穿、注册和共享语义须与所用引擎及连接器核对。</div>
+          <div class="takeaway"><b>能力边界</b>四层为原文参考架构，并非默认部署能力；写穿、注册与跨 worker 共享语义取决于引擎及连接器集成。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="tiers-title">
@@ -287,22 +347,22 @@
             <path d="M45 88v184" class="line"/><text x="43" y="291" class="small">下沉</text>
             <path d="M555 275V90" class="line"/><text x="554" y="69" class="small">恢复</text>
           </svg>
-          <figcaption>恢复需要 I/O：层级越远不一定越划算。只有搬运代价低于重算，缓存才真正减少下一轮等待。</figcaption>
+          <figcaption>需比较实际加载与重算的关键路径代价；存储容量扩展本身不保证续轮延迟降低。</figcaption>
         </figure>
       </div>
       <footer class="slide-source">原文：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#kv-cache-as-a-shared-resource">KV Cache as a Shared Resource · 分层与共享</a></footer>
     </section>
 
-    <section class="slide" id="s10" aria-labelledby="title10" data-topic="03 · KV Cache">
-      <header class="slide-heading"><p class="eyebrow">03 KV CACHE / 共享解决的问题之一 <span class="status config">需要跨 worker 共享集成</span></p><h2 id="title10">子 Agent 冷启动：<em>公共前缀只算一次</em></h2><p class="lead">问题：主 Agent 已算过系统提示与工具定义；多个子 Agent 落在不同 worker 后，仍各自为相同前缀重复 Prefill。</p></header>
+    <section class="slide" id="s10" aria-labelledby="title10" data-topic="03 · KV Cache" data-label="方案 S3.2">
+      <header class="slide-heading"><p class="eyebrow">方案 S3.2 / KV CACHE · 对应 P3 <span class="status config">需要跨 worker 共享集成</span></p><h2 id="title10">子 Agent 的<em>公共前缀跨 worker 复用</em></h2><p class="lead">将父任务已计算的公共前缀发布至可访问的共享层，减少并行子任务冷启动时的重复 Prefill。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>把共享前缀与分支私有内容分开</strong><span>公共系统提示、工具定义作为共享候选；每个分支只对自己的任务、检索结果与新增历史做增量计算。</span></li>
-            <li><strong>先查可复用位置，再加载到目标 worker</strong><span>主 Agent 计算的公共块进入可访问的共享层；子 Agent 在其他 worker 上加载，而不是全部重新计算。</span></li>
-            <li><strong>复用必须满足连续性和兼容性</strong><span>以相同模型、模板及缓存域下的连续 token 前缀为前提；同样一段工具文本出现在不同前文后，不代表 KV 可以直接拼接。</span></li>
+            <li><strong>区分公共前缀与分支私有后缀</strong><span>以公共系统提示和工具定义作为共享候选；子任务在命中公共部分后，对任务描述、检索结果及新增历史进行增量计算。</span></li>
+            <li><strong>查询、加载与增量 Prefill 衔接</strong><span>公共块注册到共享层，目标 worker 获取可加载前缀并恢复 KV；未命中或未覆盖的后缀仍需执行 Prefill。</span></li>
+            <li><strong>连续前缀与缓存兼容性约束</strong><span>复用要求模型、模板、KV 格式及缓存域兼容，且 token 前缀连续一致。不同前文下的相同工具文本不能直接拼接其 KV。</span></li>
           </ul>
-          <div class="takeaway"><b>优化结果</b>把多次相同 Prefill 变成一次计算与后续加载；只节省公共部分，私有后缀与数据搬运仍有成本。</div>
+          <div class="takeaway"><b>收益范围</b>在公共块可用期间，以加载替代重复 Prefill；收益限定于命中的公共前缀，需计入私有后缀计算及数据传输成本。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="share-title">
@@ -311,9 +371,9 @@
             <path d="M300 91v26" class="line"/>
             <rect x="116" y="124" width="368" height="65" rx="12" class="box lime"/><text x="300" y="163">可查询、可加载的公共 KV</text>
             <path d="M300 195v27M116 223h368M116 223v26M300 223v26M484 223v26" class="line"/>
-            <rect x="31" y="257" width="170" height="80" rx="10" class="box white"/><text x="116" y="287" class="bold">子 Agent A</text><text x="116" y="316" class="small">加载公共 + 算新增</text>
-            <rect x="215" y="257" width="170" height="80" rx="10" class="box white"/><text x="300" y="287" class="bold">子 Agent B</text><text x="300" y="316" class="small">加载公共 + 算新增</text>
-            <rect x="399" y="257" width="170" height="80" rx="10" class="box white"/><text x="484" y="287" class="bold">子 Agent C</text><text x="484" y="316" class="small">加载公共 + 算新增</text>
+            <rect x="31" y="257" width="170" height="80" rx="10" class="box white"/><text x="116" y="287" class="bold">子 Agent A</text><text x="116" y="316" class="small">加载 + 增量 Prefill</text>
+            <rect x="215" y="257" width="170" height="80" rx="10" class="box white"/><text x="300" y="287" class="bold">子 Agent B</text><text x="300" y="316" class="small">加载 + 增量 Prefill</text>
+            <rect x="399" y="257" width="170" height="80" rx="10" class="box white"/><text x="484" y="287" class="bold">子 Agent C</text><text x="484" y="316" class="small">加载 + 增量 Prefill</text>
           </svg>
           <figcaption>目标数据流，不是跨任意模型 / 后端的 KV 互通保证。多租户部署仍需验证缓存域隔离。</figcaption>
         </figure>
@@ -321,16 +381,16 @@
       <footer class="slide-source">原文：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#kv-cache-as-a-shared-resource">共享 KV 与子 Agent 冷启动</a> · <a href="https://github.com/ai-dynamo/dynamo/blob/17d644feb3edf590506b345dc8ed81ce9bb29306/lib/router/worker-selection/src/shared_cache.rs">连续可加载前缀的源码表示</a></footer>
     </section>
 
-    <section class="slide" id="disagg-roundtrip" aria-labelledby="roundtrip-heading" data-topic="03 · KV Cache">
-      <header class="slide-heading"><p class="eyebrow">03 KV CACHE / 共享解决的问题之二 <span class="status config">面向 P/D 多轮的集成目标</span></p><h2 id="roundtrip-heading">多轮 P/D：<em>上一轮生成的 KV 在哪里？</em></h2><p class="lead">问题：Prefill 与 Decode 分开后，上一轮新生成的 KV 留在 Decode worker；下一轮 Prefill 却需要包含它的完整历史。</p></header>
+    <section class="slide" id="disagg-roundtrip" aria-labelledby="roundtrip-heading" data-topic="03 · KV Cache" data-label="方案 S3.3">
+      <header class="slide-heading"><p class="eyebrow">方案 S3.3 / KV CACHE · 对应 P3 <span class="status config">面向 P/D 多轮的集成目标</span></p><h2 id="roundtrip-heading">P/D 分离下的<em>跨轮 KV 发布与加载</em></h2><p class="lead">将 Decode 阶段生成的 KV 后缀纳入共享发布路径，使后续 Prefill worker 能复用上一轮的完整连续历史。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>单轮传输只解决了前半段</strong><span>Prefill worker 计算输入前缀 P，经 NIXL / 后端传输交给 Decode；Decode 继续生成内容，形成新增 KV 后缀 Δ。</span></li>
-            <li><strong>Agent 续轮需要的是 P + Δ</strong><span>工具返回后，下一次输入包含上一轮回复。若目标 Prefill worker 只有 P，就仍需补算缺少的历史，无法实现完整续轮复用。</span></li>
-            <li><strong>将新增块纳入共享可见性与加载路径</strong><span>原文提出由 Decode 把新增块写入公共层，使下一轮 Prefill 能取回连续历史；新工具结果则继续增量计算。</span></li>
+            <li><strong>保留单轮 P→D 的输入前缀传输</strong><span>Prefill worker 计算前缀 P，经 NIXL / 后端传输至 Decode；Decode 基于 P 生成响应，并形成新增 KV 后缀 Δ。</span></li>
+            <li><strong>发布 Decode 新增块及位置元数据</strong><span>原文提出由 Decode 将新增块写入公共层，使 P 与 Δ 构成可查询、可加载的连续历史，而非仅保留在生成节点。</span></li>
+            <li><strong>续轮加载历史并计算新增输入</strong><span>下一轮 Prefill worker 加载 P + Δ，对工具结果执行增量计算。加载范围仍需与实际渲染后的 token 前缀及已发布块匹配。</span></li>
           </ul>
-          <div class="takeaway"><b>必要架构背景</b>这里只讨论 P/D 对 Agent 多轮 KV 归属的影响；完成 P→D 传输，不等于下一轮 D→P 的状态复用已自动打通。</div>
+          <div class="takeaway"><b>集成边界</b>单轮 P→D 传输与跨轮 D→P 复用是不同路径；后者依赖新增块发布、写入可见性及目标 worker 加载能力。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="roundtrip-title">
@@ -340,9 +400,9 @@
             <path d="M239 96h92" class="line"/><text x="284" y="80" class="small">KV 传输 →</text>
             <rect x="340" y="60" width="230" height="72" rx="10" class="box lime"/><text x="455" y="88" class="bold">第 1 轮 · Decode</text><text x="455" y="115">P + 新生成后缀 Δ</text>
             <path d="M455 139v36" class="line dashed"/>
-            <rect x="143" y="183" width="427" height="54" rx="10" class="box future"/><text x="356" y="217">公共层：使 P 与 Δ 都可被后续读取</text>
+            <rect x="143" y="183" width="427" height="54" rx="10" class="box future"/><text x="356" y="217">共享层：P + Δ 的可访问副本</text>
             <path d="M246 244v27" class="line dashed"/>
-            <rect x="30" y="278" width="540" height="61" rx="10" class="box teal"/><text x="300" y="303" class="bold">第 2 轮 · Prefill（可能是另一台 worker）</text><text x="300" y="328" class="small">加载 P + Δ，再计算新增工具结果</text>
+            <rect x="30" y="278" width="540" height="61" rx="10" class="box teal"/><text x="300" y="303" class="bold">第 2 轮 · Prefill（允许跨 worker）</text><text x="300" y="328" class="small">加载 P + Δ，再计算新增工具结果</text>
           </svg>
           <figcaption>虚线表示需连接的共享路径；实际连续前缀仍受模板渲染、KV 格式和写入完成时机约束。</figcaption>
         </figure>
@@ -350,21 +410,52 @@
       <footer class="slide-source">原文：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#kv-cache-as-a-shared-resource">共享 KV 与 disaggregated serving 的多轮状态</a></footer>
     </section>
 
-    <section class="slide" id="s08" aria-labelledby="title08" data-topic="03 · KV Cache">
-      <header class="slide-heading"><p class="eyebrow">03 KV CACHE / 工具等待中的卸载与预取 <span class="status config">前缀预热已支持 · 跨层预取钩子演进中</span></p><h2 id="title08">工具还没返回，<em>先准备即将使用的上下文</em></h2><p class="lead">问题：KV 保存在低层存储，只解决了“没丢失”；若直到下一轮到达才加载，恢复延迟仍在用户等待路径上。</p></header>
+    <section class="slide problem-slide" id="resume-problem" aria-labelledby="resume-heading" data-topic="03 · KV Cache" data-label="问题 P4">
+      <header class="slide-heading"><p class="eyebrow">问题 P4 / KV CACHE · 状态恢复延迟</p><h2 id="resume-heading">按需恢复将状态准备<em>串行化至任务关键路径</em></h2><p class="lead">跨层保留保证 KV 可恢复，但若状态准备由下一轮请求触发，数据加载和未命中前缀计算仍会延迟后续推理。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>方向：等待期间下沉，恢复前预取</strong><span>Harness 可利用工具耗时分布预测恢复时机，提前将已有 KV 从存储层带回 GPU；原文将通用预取钩子列为建设方向。</span></li>
-            <li><strong>现有机制：speculative_prefill 提前计算</strong><span>当前轮回复完成后重建预测前缀，渲染、tokenize，并发送 <code>max_tokens=1</code> 的预热请求；它计算前缀，不是指挥远端块搬运。</span></li>
-            <li><strong>只准备可预测且值得准备的部分</strong><span>未知工具结果不能提前算；模板变化、提前结束或过早加载都可能浪费资源，需要限制预热并发、超时与前台干扰。</span></li>
+            <li><strong>非 GPU 驻留状态存在加载成本</strong><span>CPU、NVMe 或远端副本需要经传输路径恢复至 GPU；仅确认缓存存在，不能消除带宽、I/O 排队和加载延迟。</span></li>
+            <li><strong>可预测前缀仍可能缺少 KV</strong><span>上一轮输出与模板生成的续轮前缀未必全部处于可复用缓存中；缺失部分需要计算，与已有块的传输是不同开销。</span></li>
+            <li><strong>工具等待窗口未用于状态准备</strong><span>若加载与计算均在工具返回后启动，其成本将进入恢复路径；同时，工具耗时变化和任务提前终止限制了恢复时机预测。</span></li>
           </ul>
-          <div class="takeaway"><b>两条路径</b>缺少的 KV → 提前计算；已有但不在 GPU 的 KV → 提前搬运。二者都利用等待窗口，但不是同一项能力。</div>
+          <div class="takeaway"><b>优化目标</b>减少状态准备与工具执行之间的串行依赖，而非仅增加缓存容量。对应方案：S4.1 前缀预热与跨层预取。</div>
+        </div>
+        <figure class="diagram">
+          <svg viewBox="0 0 600 370" role="img" aria-labelledby="resume-gap-title">
+            <title id="resume-gap-title">按需恢复时，工具执行结束后才启动 KV 加载与前缀计算，这些开销串行进入续轮推理之前</title>
+            <text x="30" y="35" class="svg-kicker">基线：下一轮请求触发状态准备</text>
+            <text x="30" y="83" class="left small">工具阶段</text>
+            <rect x="30" y="100" width="280" height="50" rx="9" class="box muted"/><text x="170" y="131">工具执行</text>
+            <path d="M317 85v232" class="line dashed"/>
+            <text x="325" y="83" class="left small">工具返回 / 续轮到达</text>
+            <text x="30" y="195" class="left small">状态与推理阶段</text>
+            <rect x="30" y="213" width="280" height="64" rx="9" class="box white"/><text x="170" y="239">KV 位于存储层</text><text x="170" y="264" class="small">尚未启动预取 / 预热</text>
+            <rect x="330" y="213" width="145" height="64" rx="9" class="box amber"/><text x="402" y="239">状态准备</text><text x="402" y="264" class="small">加载 / 前缀计算</text>
+            <rect x="490" y="213" width="80" height="64" rx="9" class="box teal"/><text x="530" y="251">推理</text>
+            <text x="300" y="337" class="small">等待窗口与状态准备未重叠 → 恢复开销暴露</text>
+          </svg>
+          <figcaption>时间线表示依赖关系，长度不代表实际耗时；加载与计算的具体重叠能力取决于后端。</figcaption>
+        </figure>
+      </div>
+      <footer class="slide-source">依据：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#kv-cache-as-a-shared-resource">KV Cache as a Shared Resource · Prefetch</a> · <a href="https://docs.nvidia.com/dynamo/dev/additional-resources/nvidia-request-extensions-nvext#speculative-prefill">Speculative Prefill</a></footer>
+    </section>
+
+    <section class="slide" id="s08" aria-labelledby="title08" data-topic="03 · KV Cache" data-label="方案 S4.1">
+      <header class="slide-heading"><p class="eyebrow">方案 S4.1 / KV CACHE · 对应 P4 <span class="status config">前缀预热已支持 · 跨层预取钩子演进中</span></p><h2 id="title08">工具等待窗口内的<em>前缀预热与 KV 预取</em></h2><p class="lead">利用工具执行与模型请求之间的时间窗口，分别提前计算可预测前缀、恢复已有 KV，降低续轮状态准备的暴露延迟。</p></header>
+      <div class="two-col">
+        <div class="copy">
+          <ul class="points">
+            <li><strong>跨层预取：恢复已有 KV</strong><span>Harness 可根据工具耗时分布预测续轮到达时机，提前将已有 KV 从存储层加载至 GPU；通用 Harness 预取钩子仍属演进方向。</span></li>
+            <li><strong>speculative_prefill：计算预测前缀</strong><span>当前回复完成后重建、渲染并 tokenize 预测前缀，发送 <code>max_tokens=1</code> 的预热请求；该机制不是跨层数据传输接口。</span></li>
+            <li><strong>限制预测偏差与资源干扰</strong><span>未知工具结果不在预计算范围内；模板变化、任务终止及过早恢复均可能产生无效开销，需要约束并发、超时和前台干扰。</span></li>
+          </ul>
+          <div class="takeaway"><b>机制区分</b>预热针对缺失 KV 的计算；预取针对已有 KV 的传输。二者共享时间窗口，但触发条件、资源成本和实现状态不同。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="warm-title">
             <title id="warm-title">工具等待期间，已有 KV 可以下沉后在恢复前预取；缺少的预测前缀可通过 speculative prefill 提前计算，两条路径不同</title>
-            <text x="30" y="35" class="svg-kicker">工具等待窗口：计算预热与数据预取分开看</text>
+            <text x="30" y="35" class="svg-kicker">工具等待窗口：计算与传输两类准备路径</text>
             <rect x="30" y="59" width="376" height="47" rx="8" class="box muted"/><text x="218" y="89">工具执行 / 等待</text>
             <rect x="416" y="59" width="154" height="47" rx="8" class="box teal"/><text x="493" y="89">Agent 恢复</text>
             <text x="30" y="149" class="left small">已有 KV：跨层搬运（演进方向）</text>
@@ -375,7 +466,7 @@
             <rect x="451" y="166" width="119" height="48" rx="8" class="box lime"/><text x="510" y="196">GPU 可用</text>
             <text x="30" y="257" class="left small">预测前缀缺少 KV：提前计算（已支持）</text>
             <rect x="30" y="274" width="376" height="49" rx="8" class="box lime"/><text x="218" y="305">回复结束 → 渲染前缀 → speculative prefill</text>
-            <text x="300" y="354" class="small">不是提前知道工具结果，也不是投机解码</text>
+            <text x="300" y="354" class="small">不预测未知工具结果；不同于投机解码</text>
           </svg>
           <figcaption>时间线只表达可重叠的工作，不代表测量结果；现有预热不保证下一轮到达前完成或始终命中。</figcaption>
         </figure>
@@ -383,16 +474,45 @@
       <footer class="slide-source">原文：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#kv-cache-as-a-shared-resource">工具等待与 Prefetch</a> · <a href="https://docs.nvidia.com/dynamo/dev/additional-resources/nvidia-request-extensions-nvext#speculative-prefill">当前预热语义</a> · <a href="https://github.com/ai-dynamo/dynamo/blob/17d644feb3edf590506b345dc8ed81ce9bb29306/lib/llm/src/preprocessor/speculative_prefill.rs">预热源码</a></footer>
     </section>
 
-    <section class="slide" id="s11" aria-labelledby="title11" data-topic="03 · KV Cache">
-      <header class="slide-heading"><p class="eyebrow">03 KV CACHE / Selective Cache Retention <span class="status config">请求优先级可用 · 细粒度跨层控制演进中</span></p><h2 id="title11">共享解决“拿得到”，<em>保留策略解决“别先丢”</em></h2><p class="lead">问题：公共前缀即使进入共享体系，也可能被低价值、刚生成的临时块挤出；单靠 LRU 仍无法保护即将恢复的会话。</p></header>
+    <section class="slide problem-slide" id="eviction-problem" aria-labelledby="eviction-heading" data-topic="03 · KV Cache" data-label="问题 P5">
+      <header class="slide-heading"><p class="eyebrow">问题 P5 / KV CACHE · 保留与回收</p><h2 id="eviction-heading">访问近期性与<em>实际复用价值不一致</em></h2><p class="lead">LRU 主要依据最近访问时间，缺少任务重要性与会话生命周期信息，难以区分暂停会话的有效状态和已终止分支的临时状态。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>今天：通过请求优先级保护重要缓存</strong><span><code>nvext.agent_hints.priority</code> 可被支持的后端用于缓存淘汰；SGLang 需启用 <code>--radix-eviction-policy priority</code>。</span></li>
-            <li><strong>设计方向：普通块与标注块区别处理</strong><span>原文提出未标注块走 LRU，带保留指令的块进入优先级结构；未来可把优先级、生命周期与放置意图随块传播到共享层。</span></li>
-            <li><strong>请求级、区间级与集群级不是同一能力</strong><span>TRT-LLM 的 token-range retention 是引擎原语，不等于 Dynamo 已提供统一的区间 / TTL 接口或跨集群块租约。</span></li>
+            <li><strong>暂停导致高复用前缀被提前淘汰</strong><span>原文讨论 2–30 秒工具等待：系统提示与会话历史仍有后续访问需求，但可能因近期访问减少而被其他请求替换。</span></li>
+            <li><strong>近期生成不等同于后续复用</strong><span>子 Agent 终止或历史压缩后，部分私有 KV 不再参与后续输入；继续保留或写入低层存储将占用容量与传输带宽。</span></li>
+            <li><strong>请求完成无法确定会话状态失效</strong><span>同一会话包含多个请求，共享前缀也可能被其他 Agent 引用。仅依据请求结束事件，无法确定安全回收范围。</span></li>
           </ul>
-          <div class="takeaway"><b>不要误用</b><code>nvext.cache_control</code> 不是可用的 TTL pinning 接口；兼容 Anthropic 的 cache_control 标注也不表示自托管缓存获得相同保留语义。</div>
+          <div class="takeaway"><b>目标</b>同时降低有效状态的过早淘汰与失效状态的过度保留。对应方案：S5.1 选择性保留；S5.2 生命周期驱动回收。</div>
+        </div>
+        <figure class="diagram">
+          <svg viewBox="0 0 600 370" role="img" aria-labelledby="value-title">
+            <title id="value-title">公共前缀、暂停会话历史和终止分支私有历史具有不同的未来复用价值，最近访问时间不足以区分</title>
+            <text x="30" y="35" class="svg-kicker">KV 类型与后续访问需求</text>
+            <rect x="30" y="65" width="350" height="60" rx="10" class="box lime"/><text x="205" y="102">系统提示 + 工具定义</text>
+            <rect x="405" y="65" width="165" height="60" rx="10" class="box white"/><text x="487" y="102">跨轮高频复用</text>
+            <rect x="30" y="146" width="350" height="60" rx="10" class="box teal"/><text x="205" y="183">暂停会话的累积历史</text>
+            <rect x="405" y="146" width="165" height="60" rx="10" class="box white"/><text x="487" y="183">恢复后复用</text>
+            <rect x="30" y="227" width="350" height="60" rx="10" class="box muted"/><text x="205" y="264">已终止分支的私有历史</text>
+            <rect x="405" y="227" width="165" height="60" rx="10" class="box amber"/><text x="487" y="264">潜在无效驻留</text>
+            <text x="300" y="338" class="small">访问近期性 ≠ 复用价值；请求结束 ≠ 会话终止</text>
+          </svg>
+          <figcaption>reasoning KV 是否失效取决于后续输入和模型模板，不可统一视为可立即回收的临时数据。</figcaption>
+        </figure>
+      </div>
+      <footer class="slide-source">依据：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#the-problem-with-uniform-eviction">The Problem with Uniform Eviction</a> · <a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#agent-lifecycle-awareness">Agent Lifecycle Awareness</a></footer>
+    </section>
+
+    <section class="slide" id="s11" aria-labelledby="title11" data-topic="03 · KV Cache" data-label="方案 S5.1">
+      <header class="slide-heading"><p class="eyebrow">方案 S5.1 / KV CACHE · 对应 P5 <span class="status config">请求优先级可用 · 细粒度跨层控制演进中</span></p><h2 id="title11">基于优先级与保留意图的<em>选择性淘汰</em></h2><p class="lead">在访问近期性之外引入重要性与保留元数据，区分常规缓存和高复用状态，并在支持的后端中调整淘汰顺序。</p></header>
+      <div class="two-col">
+        <div class="copy">
+          <ul class="points">
+            <li><strong>现有能力：请求优先级参与缓存淘汰</strong><span><code>nvext.agent_hints.priority</code> 可被支持的后端用于缓存淘汰；SGLang 需启用 <code>--radix-eviction-policy priority</code>。</span></li>
+            <li><strong>设计方向：差异化管理标注块</strong><span>原文提出未标注块采用 LRU，带保留指令的块进入优先级结构；进一步将优先级、生命周期及放置意图传播至共享层。</span></li>
+            <li><strong>请求级、区间级与集群级语义分离</strong><span>TRT-LLM 的 token-range retention 属于引擎原语，不代表 Dynamo 已提供统一的区间 / TTL 接口或跨集群块租约。</span></li>
+          </ul>
+          <div class="takeaway"><b>接口限制</b><code>nvext.cache_control</code> 不是可用的 TTL pinning 接口；兼容 Anthropic cache_control 标注不意味着实现相同的自托管保留语义。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="retention-title">
@@ -410,21 +530,21 @@
       <footer class="slide-source">原文：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#selective-cache-retention">Selective Cache Retention</a> · 后端边界：<a href="https://docs.nvidia.com/dynamo/dev/additional-resources/nvidia-request-extensions-nvext#priority">priority 参考</a></footer>
     </section>
 
-    <section class="slide" id="s12" aria-labelledby="title12" data-topic="03 · KV Cache">
-      <header class="slide-heading"><p class="eyebrow">03 KV CACHE / Agent Lifecycle Awareness <span class="status future">跨层生命周期控制属探索方向</span></p><h2 id="title12">分支结束或历史压缩后，<em>及时回收临时 KV</em></h2><p class="lead">问题：请求结束不等于会话结束；缓存系统也看不见“这个子 Agent 不再运行”或“旧历史已被摘要替代”。</p></header>
+    <section class="slide" id="s12" aria-labelledby="title12" data-topic="03 · KV Cache" data-label="方案 S5.2">
+      <header class="slide-heading"><p class="eyebrow">方案 S5.2 / KV CACHE · 对应 P5 <span class="status future">跨层生命周期控制属探索方向</span></p><h2 id="title12">生命周期驱动的<em>私有 KV 回收与写入抑制</em></h2><p class="lead">结合分支终止、历史压缩与共享引用信息识别失效状态，在不影响有效前缀的前提下减少无效驻留及跨层写入。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>用会话事件识别 ephemeral KV</strong><span>子 Agent terminate、会话 compaction，以及不再进入后续输入的 thinking 内容，都可能使部分 KV 失去复用价值。</span></li>
-            <li><strong>回收私有后缀，避免无效下沉</strong><span>原文探索 session 标记与引擎语义检测：降低临时块的保留价值，优先回收，必要时跳过共享存储写入。</span></li>
-            <li><strong>保留仍被引用的公共块</strong><span>其他 Agent 可能还在使用同一前缀；回收需考虑引用与共享关系。只要历史仍参与后续 attention，就不能因“推理结束”而随意删除。</span></li>
+            <li><strong>通过生命周期事件识别 ephemeral KV</strong><span>子 Agent terminate、会话 compaction，以及不再进入后续输入的 thinking 内容，都可能使部分 KV 失去复用价值。</span></li>
+            <li><strong>降低失效私有块的保留与写入优先级</strong><span>原文探索 session 标记与引擎语义检测：优先回收已失效的私有后缀，并在适用时抑制其向共享存储写入。</span></li>
+            <li><strong>以有效引用约束回收范围</strong><span>回收需保留其他 Agent 仍使用的公共前缀；历史只要仍参与后续 attention，就不能仅依据当前请求完成而删除。</span></li>
           </ul>
-          <div class="takeaway"><b>闭合生命周期</b>公共前缀长期复用，私有临时状态及时退场；已有会话标识 / 亲和性，不等于自动拥有跨层生命周期回收。</div>
+          <div class="takeaway"><b>实现边界</b>会话标识与路由亲和性不等同于跨层生命周期回收；精准失效识别、共享引用处理及写入抑制仍需引擎和存储协同。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="life-title">
             <title id="life-title">主 Agent 继续使用公共前缀，子 Agent 终止后回收私有 KV；虚线路径表示探索中的生命周期控制</title>
-            <text x="30" y="35" class="svg-kicker">结束的是分支，不是所有 Agent 的公共上下文</text>
+            <text x="30" y="35" class="svg-kicker">分支私有状态与共享前缀的生命周期分离</text>
             <rect x="30" y="71" width="157" height="53" rx="9" class="box teal"/><text x="108" y="104">主 Agent</text>
             <path d="M195 97h168" class="line"/><text x="283" y="83" class="small">继续运行</text>
             <rect x="372" y="71" width="197" height="53" rx="9" class="box teal"/><text x="470" y="104">下一轮任务</text>
@@ -432,7 +552,7 @@
             <rect x="166" y="159" width="181" height="54" rx="9" class="box white"/><text x="256" y="193">子 Agent → 结束</text>
             <path d="M353 186h50" class="line dashed"/>
             <rect x="412" y="158" width="158" height="56" rx="9" class="box future"/><text x="491" y="193">回收私有 KV</text>
-            <rect x="30" y="269" width="540" height="62" rx="12" class="box lime"/><text x="300" y="307">公共前缀：仍有其他 Agent 使用 → 保留</text>
+            <rect x="30" y="269" width="540" height="62" rx="12" class="box lime"/><text x="300" y="307">公共前缀：有效引用存在 → 继续保留</text>
             <path d="M108 132v122" class="line dashed"/>
           </svg>
           <figcaption>结束 / 压缩事件与保留策略的协同属于原文探索方向；不宣称通用的自动识别、精准回收接口已经可用。</figcaption>
@@ -441,16 +561,16 @@
       <footer class="slide-source">原文：<a href="https://docs.nvidia.com/dynamo/dev/digest/agentic-inference#agent-lifecycle-awareness">Agent Lifecycle Awareness</a></footer>
     </section>
 
-    <section class="slide" id="s15" aria-labelledby="title15" data-topic="贯穿案例">
-      <header class="slide-heading"><p class="eyebrow">回到同一个编码任务 / Closing the Gap</p><h2 id="title15">让一次 Agent 循环，<em>穿过三层优化</em></h2><p class="lead">不是给平台堆更多组件，而是把 Agent 已知的上下文、依赖与生命周期，传给真正作出决策的层。</p></header>
+    <section class="slide" id="s15" aria-labelledby="title15" data-topic="端到端协同">
+      <header class="slide-heading"><p class="eyebrow">端到端协同 / PROBLEM–SOLUTION MAPPING</p><h2 id="title15">请求语义、任务调度与<em>状态生命周期协同</em></h2><p class="lead">以编码 Agent 的多轮执行为例，将五类问题映射至对应处理层；收益来自跨层信息与数据路径的一致性。</p></header>
       <div class="two-col">
         <div class="copy">
           <ul class="points">
-            <li><strong>请求进入：保留结构，传递意图</strong><span>Frontend 正确处理思考与工具调用；Harness 用 priority、osl、预热提示描述当前请求与下一轮需求。</span></li>
-            <li><strong>选择执行位置：续轮命中，关键分支先行</strong><span>Router 综合缓存与负载；串行续轮尽量复用历史，并行探索避免热点，让阻塞主任务的请求优先获得服务。</span></li>
-            <li><strong>状态退出：值得复用的留下，不再使用的回收</strong><span>共享层承接公共前缀与跨 worker 历史；工具等待可用于准备下一轮，分支终止后回收私有临时状态。</span></li>
+            <li><strong>P1 → S1：请求语义与元数据传递</strong><span>Frontend 归一多协议内容，稳定交互历史；Harness 通过 priority、osl 和预热提示提供任务级决策依据。</span></li>
+            <li><strong>P2 → S2：放置与关键路径调度</strong><span>Router 联合评估前缀命中与活跃负载，跨队列传递优先级，并按会话连续性、并发度及容量约束适配策略。</span></li>
+            <li><strong>P3–P5 → S3–S5：状态复用与生命周期</strong><span>共享路径扩展 KV 可访问范围；预热 / 预取降低恢复延迟；选择性保留与生命周期回收区分有效状态和失效私有状态。</span></li>
           </ul>
-          <div class="takeaway"><b>核心结论</b>Frontend 让意图可见，Router 让已有 KV 可命中，缓存管理让有价值的状态持续可用、无价值的状态及时退出。</div>
+          <div class="takeaway"><b>优化目标</b>减少冗余 Prefill、关键分支排队、暴露的状态恢复延迟及无效 KV 驻留；各项收益受后端能力与集成完整性约束。</div>
         </div>
         <figure class="diagram">
           <svg viewBox="0 0 600 370" role="img" aria-labelledby="case-title">
@@ -459,7 +579,7 @@
             <path d="M300 80v14" class="line"/>
             <rect x="30" y="100" width="540" height="50" rx="9" class="box teal"/><text x="300" y="131">路由执行：命中前缀 + 优先关键分支</text>
             <path d="M300 156v14" class="line"/>
-            <rect x="30" y="176" width="540" height="50" rx="9" class="box lime"/><text x="300" y="207">工具等待：按能力下沉 / 预热，恢复时复用</text>
+            <rect x="30" y="176" width="540" height="50" rx="9" class="box lime"/><text x="300" y="207">工具等待：KV 卸载 / 预热 / 预取</text>
             <path d="M300 232v14" class="line"/>
             <rect x="30" y="252" width="540" height="50" rx="9" class="box future"/><text x="300" y="283">分支结束：公共 KV 保留，私有 KV 回收</text>
             <text x="300" y="345" class="small">现有信号与机制 + 共享集成 + 生命周期演进</text>
@@ -473,13 +593,13 @@
 
   <footer class="player controls" hidden>
     <div class="progress-track" aria-hidden="true"><div id="progress"></div></div>
-    <div class="player-info"><span id="page-number">01 / 15</span><span id="topic">主线</span></div>
+    <div class="player-info"><span id="page-number">01 / 19</span><span id="topic">主线</span></div>
     <p class="keyboard-hint">← → 翻页 <span>·</span> O 总览 <span>·</span> F 全屏</p>
     <div class="pager"><button id="prev-button" aria-label="上一页">←</button><button id="next-button" aria-label="下一页">→</button></div>
   </footer>
   <dialog id="toc" aria-labelledby="toc-title">
     <div class="dialog-heading"><h2 id="toc-title">演示目录</h2><button id="close-toc" aria-label="关闭目录">✕</button></div>
-    <p>Frontend → Router → KV Cache：每层都从 Agent 的实际问题出发</p>
+    <p>Frontend → Router → KV Cache；问题 P1–P5 后依次展开对应的 S 编号方案。</p>
     <nav id="toc-links" aria-label="幻灯片目录"></nav>
   </dialog>
   <p id="announcement" class="sr-only" role="status" aria-live="polite"></p>

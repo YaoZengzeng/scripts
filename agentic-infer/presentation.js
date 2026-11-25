@@ -27,7 +27,14 @@
     link.href = `#${slide.id}`;
     const number = document.createElement("span");
     number.textContent = String(index + 1).padStart(2, "0");
-    link.append(number, document.createTextNode(titleFor(slide)));
+    link.append(number);
+    if (slide.dataset.label) {
+      const label = document.createElement("span");
+      label.className = "toc-kind";
+      label.textContent = slide.dataset.label;
+      link.append(label);
+    }
+    link.append(document.createTextNode(titleFor(slide)));
     link.addEventListener("click", (event) => {
       event.preventDefault();
       dialog.close();
