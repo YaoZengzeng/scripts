@@ -39,6 +39,7 @@ h2 em { font-style: normal; color: var(--teal); }
 .status.ready { background: #e0efd2; color: #305a24; }
 .status.config { background: #f2e5cd; color: #78551f; }
 .status.future { background: #e7e4f2; color: #665184; }
+.status-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
 .two-col { display: grid; grid-template-columns: .94fr 1.06fr; gap: 4vw; align-items: center; flex: 1; padding: 28px 0 20px; }
 .two-col > * { min-width: 0; }
 code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: .88em; overflow-wrap: anywhere; }
