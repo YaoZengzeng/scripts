@@ -40,21 +40,9 @@ h2 em { font-style: normal; color: var(--teal); }
 .status.config { background: #f2e5cd; color: #78551f; }
 .status.future { background: #e7e4f2; color: #665184; }
 .two-col { display: grid; grid-template-columns: .94fr 1.06fr; gap: 4vw; align-items: center; flex: 1; padding: 28px 0 20px; }
-.two-col > *, .config-grid > * { min-width: 0; }
+.two-col > * { min-width: 0; }
 code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: .88em; overflow-wrap: anywhere; }
 .points code { color: #245d50; background: #e7eee1; padding: 1px 4px; border-radius: 3px; }
-.formula { padding: 15px 17px; background: #193b33; border-radius: 10px; margin-bottom: 20px; color: #e5f6c4; }
-.formula span { display: block; font-size: 11px; color: #aec6b6; margin-bottom: 9px; }
-.formula code { font-size: 16px; line-height: 1.6; }
-.config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; flex: 1; padding: 24px 0 20px; }
-.code-card { background: #edf1e8; border: 1px solid var(--line); padding: 18px 22px; border-radius: 12px; }
-.code-card h3 { font-size: 17px; margin-bottom: 13px; }
-.code-card pre { background: #18382f; color: #e5f4d5; padding: 17px 19px; border-radius: 8px; margin: 0 0 13px; white-space: pre-wrap; tab-size: 2; }
-.code-card pre code { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.code-card p { font-size: 12px; line-height: 1.8; color: var(--muted); margin-bottom: 0; }
-.config-flow { display: flex; align-items: center; gap: 12px; margin: 18px 0; flex-wrap: wrap; }
-.config-flow span { background: #deedc3; border: 1px solid #c7d9ad; padding: 9px 12px; border-radius: 7px; font-size: 12px; }
-.config-flow b { color: var(--teal); }
 .points { padding: 0; margin: 0; list-style: none; counter-reset: points; }
 .points li { position: relative; padding-left: 37px; margin-bottom: 20px; counter-increment: points; }
 .points li::before { content: "0" counter(points); position: absolute; left: 0; top: 2px; font-size: 12px; font-weight: 700; color: var(--teal); }
@@ -114,32 +102,6 @@ svg .hero-core-sub { fill: #35523d; }
 svg .hero-code { fill: #45663d; font-size: 12px; letter-spacing: 2px; }
 .spark { fill: #d9f28b; }
 .cover-bottom { position: absolute; left: 5.4vw; right: 5.4vw; bottom: 24px; display: flex; justify-content: space-between; border-top: 1px solid #3c554a; padding-top: 17px; font-size: 10px; color: #9fb3a4; letter-spacing: .5px; }
-.roadmap { display: grid; grid-template-columns: repeat(3, 1fr); gap: 17px; margin: 26px 0 22px; }
-.roadmap article { border: 1px solid var(--line); padding: 20px 22px; border-radius: 12px; background: #eef2e7; }
-.roadmap article:nth-child(2) { background: #e4eee5; }
-.roadmap article:nth-child(3) { background: #eeebf1; }
-.step-number { color: var(--teal); font-size: 30px; font-weight: 750; letter-spacing: -1px; }
-.roadmap h3 { font-size: 18px; margin: 10px 0 12px; }
-.roadmap p { color: var(--muted); font-size: 14px; line-height: 1.9; margin-bottom: 12px; }
-.roadmap small { color: #627162; font-size: 10px; }
-.metrics { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 20px; }
-.metrics > div { padding: 0 22px; border-left: 1px solid var(--line); }
-.metrics > div:first-child { padding-left: 0; border: 0; }
-.metrics span { color: var(--muted); font-size: 11px; display: block; margin-bottom: 7px; }
-.metrics strong { font-size: 20px; font-weight: 650; }
-.metrics p { margin: 9px 0 0; font-size: 12px; line-height: 1.8; color: var(--muted); }
-.full { margin-bottom: 18px; }
-.roadmap-slide .slide-source { margin-top: auto; }
-.reference-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; flex: 1; padding: 25px 0 20px; }
-.reference-card { border: 1px solid var(--line); padding: 18px 22px; border-radius: 10px; background: #fdfdf7; }
-.ref-id { font-size: 10px; font-weight: 650; color: var(--teal); letter-spacing: 1px; }
-.reference-card h3 { font-size: 19px; margin: 10px 0 8px; }
-.reference-card p { font-size: 12px; color: var(--muted); line-height: 1.8; margin-bottom: 8px; }
-.reference-card a { font-size: 12px; display: inline-block; margin-right: 16px; }
-.reference-card small { display: block; font-size: 10px; color: var(--muted); margin-top: 10px; }
-.closing-line { display: flex; align-items: center; justify-content: center; gap: 20px; padding: 14px; margin-bottom: 18px; border-radius: 8px; background: #e2efca; font-size: 20px; font-weight: 650; }
-.closing-line i { font-size: 16px; color: #7c976d; font-style: normal; }
-.closing-line b { color: var(--teal); font-size: 18px; }
 .player { height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 3.6vw; position: relative; background: var(--paper); }
 .progress-track { position: absolute; height: 3px; top: 0; left: 0; width: 100%; background: #e3e9df; }
 #progress { height: 100%; width: 0; background: var(--teal); transition: width .18s ease; }
@@ -163,6 +125,8 @@ dialog::backdrop { background: #0c211d99; backdrop-filter: blur(4px); }
 .dialog-heading button { border: 0; }
 dialog > p { font-size: 12px; color: var(--muted); margin: 12px 0 18px; }
 #toc-links { display: grid; gap: 4px; }
+.toc-group { margin: 16px 0 4px; padding: 9px 12px 0; border-top: 1px solid var(--line); font-size: 12px; color: var(--teal); letter-spacing: 1px; }
+.toc-group:first-child { margin-top: 0; }
 #toc-links a { text-decoration: none; padding: 10px 12px; border-radius: 6px; display: flex; gap: 16px; font-size: 13px; color: var(--ink); }
 #toc-links a:hover, #toc-links a[aria-current="page"] { background: #e2edcf; }
 #toc-links span { color: var(--teal); font-variant-numeric: tabular-nums; }
@@ -188,27 +152,6 @@ dialog > p { font-size: 12px; color: var(--muted); margin: 12px 0 18px; }
   .hero-sub { font-size: 18px; margin-bottom: 16px; }
   .hero-figure svg { max-height: 370px; }
   .cover-meta { margin-top: 19px; }
-  .roadmap { margin-top: 19px; margin-bottom: 16px; }
-  .roadmap article { padding: 12px 19px; }
-  .roadmap h3 { font-size: 17px; margin: 6px 0; }
-  .roadmap p { font-size: 12px; margin-bottom: 8px; }
-  .step-number { font-size: 25px; }
-  .metrics { margin-bottom: 14px; }
-  .metrics strong { font-size: 18px; }
-  .metrics p { font-size: 11px; }
-  .reference-grid { padding: 16px 0; gap: 12px; }
-  .reference-card { padding: 12px 18px; }
-  .reference-card h3 { margin: 6px 0; }
-  .closing-line { margin-bottom: 12px; padding: 10px; }
-  .formula { padding: 10px 13px; margin-bottom: 13px; }
-  .formula code { font-size: 13px; }
-  .config-grid { padding: 15px 0 12px; gap: 18px; }
-  .code-card { padding: 12px 17px; }
-  .code-card h3 { font-size: 15px; margin-bottom: 9px; }
-  .code-card pre { padding: 10px 14px; margin-bottom: 8px; }
-  .code-card pre code { font-size: 11px; line-height: 1.45; }
-  .code-card p { font-size: 11px; }
-  .config-flow { margin: 12px 0; }
 }
 @media (max-width: 900px) {
   .brand > span:last-child { font-size: 10px; letter-spacing: 0; }
@@ -217,7 +160,7 @@ dialog > p { font-size: 12px; color: var(--muted); margin: 12px 0 18px; }
   .topbar nav { gap: 1px; }
   .topbar button { padding: 8px; font-size: 11px; }
   .slide { padding: 28px 5vw 22px; min-height: auto; }
-  .two-col, .config-grid { grid-template-columns: 1fr; gap: 22px; }
+  .two-col { grid-template-columns: 1fr; gap: 22px; }
   h2 { font-size: 32px; letter-spacing: -1px; }
   .points strong { font-size: 18px; }
   .points li span { font-size: 15px; }
@@ -229,14 +172,6 @@ dialog > p { font-size: 12px; color: var(--muted); margin: 12px 0 18px; }
   .hero-sub { font-size: 20px; }
   .hero-figure svg { max-height: 310px; }
   .cover-bottom { position: static; grid-column: 1; margin-top: 16px; }
-  .roadmap { gap: 10px; }
-  .roadmap article { padding: 16px; }
-  .roadmap h3 { font-size: 16px; }
-  .roadmap p { font-size: 12px; }
-  .metrics strong { font-size: 17px; }
-  .reference-card { padding: 16px; }
-  .closing-line { gap: 12px; font-size: 17px; flex-wrap: wrap; }
-  .closing-line b { font-size: 16px; }
 }
 @media (max-width: 560px) {
   .topbar { height: 62px; padding: 0 14px; gap: 6px; }
@@ -257,16 +192,9 @@ dialog > p { font-size: 12px; color: var(--muted); margin: 12px 0 18px; }
   .hero-tags span { font-size: 10px; padding: 7px 12px; }
   .cover .eyebrow { font-size: 11px; letter-spacing: 2px; }
   .cover-bottom { font-size: 9px; gap: 15px; }
-  .roadmap, .metrics, .reference-grid { grid-template-columns: 1fr; }
-  .metrics { gap: 17px; }
-  .metrics > div { padding: 0; border: 0; }
-  .roadmap h3 { font-size: 18px; }
-  .roadmap p { font-size: 14px; }
   .keyboard-hint { display: none; }
   .player { height: 60px; padding: 0 18px; }
   .player-info { gap: 14px; }
-  .reference-card p { font-size: 14px; }
-  .reference-card a { font-size: 13px; }
   .slide-source { font-size: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { #progress { transition: none; } }
@@ -294,12 +222,6 @@ dialog > p { font-size: 12px; color: var(--muted); margin: 12px 0 18px; }
   .diagram { width: 100%; max-width: none; }
   .diagram svg { max-height: none; }
   .cover-bottom { position: absolute; left: 15mm; right: 15mm; bottom: 9mm; }
-  .roadmap, .metrics { grid-template-columns: repeat(3, 1fr); }
-  .reference-grid { grid-template-columns: 1fr 1fr; }
   .hero-figure svg { max-height: 420px; }
   .slide-source { font-size: 9px; }
-  .config-grid { grid-template-columns: 1fr 1fr; gap: 6mm; padding: 5mm 0; }
-  .code-card { padding: 14px 18px; }
-  .code-card pre code { font-size: 11px; line-height: 1.5; }
-  .formula code { font-size: 14px; }
 }

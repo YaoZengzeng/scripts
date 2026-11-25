@@ -17,6 +17,12 @@
   }
 
   slides.forEach((slide, index) => {
+    if (index === 0 || slide.dataset.topic !== slides[index - 1].dataset.topic) {
+      const heading = document.createElement("h3");
+      heading.className = "toc-group";
+      heading.textContent = slide.dataset.topic;
+      toc.append(heading);
+    }
     const link = document.createElement("a");
     link.href = `#${slide.id}`;
     const number = document.createElement("span");
